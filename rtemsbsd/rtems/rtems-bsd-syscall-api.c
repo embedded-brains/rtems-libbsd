@@ -4,8 +4,6 @@
  * @ingroup rtems_bsd_rtems
  *
  * @brief TODO.
- *
- * File origin from FreeBSD 'lib/libc/gen/sysctlnametomib.c'.
  */
 
 /*
@@ -794,68 +792,6 @@ out:
 	return rtems_bsd_error_to_status_and_errno(error);
 }
 
-int
-sysctl(const int *name, u_int namelen, void *oldp, size_t *oldlenp,
-    const void *newp, size_t newlen)
-{
-	int error = EINVAL;
-	if (namelen <= CTL_MAXNAME) {
-		int namedup[CTL_MAXNAME];
-		memcpy(namedup, name, namelen * sizeof(*name));
-		error = kernel_sysctl(NULL, namedup, namelen, oldp, oldlenp,
-		    RTEMS_DECONST(void *, newp), newlen, oldlenp, 0);
-	}
-	return rtems_bsd_error_to_status_and_errno(error);
-}
-
-/*
- * File origin from FreeBSD 'lib/libc/gen/sysctlbyname.c'.
- *
- * ----------------------------------------------------------------------------
- * "THE BEER-WARE LICENSE" (Revision 42):
- * <phk@FreeBSD.org> wrote this file.  As long as you retain this notice you
- * can do whatever you want with this stuff. If we meet some day, and you think
- * this stuff is worth it, you can buy me a beer in return.   Poul-Henning Kamp
- * ----------------------------------------------------------------------------
- *
- */
-int
-sysctlbyname(const char *name, void *oldp, size_t *oldlenp, const void *newp,
-    size_t newlen)
-{
-	int real_oid[CTL_MAXNAME + 2];
-	int error;
-	size_t oidlen;
-	oidlen = sizeof(real_oid) / sizeof(int);
-	error = sysctlnametomib(name, real_oid, &oidlen);
-	if (error < 0)
-		return (error);
-	error = sysctl(real_oid, oidlen, oldp, oldlenp, newp, newlen);
-	return rtems_bsd_error_to_status_and_errno(error);
-}
-
-/*
- * File origin from FreeBSD 'lib/libc/gen/sysctlnametomib.c'.
- *
- * This function uses a presently undocumented interface to the kernel
- * to walk the tree and get the type so it can print the value.
- * This interface is under work and consideration, and should probably
- * be killed with a big axe by the first person who can find the time.
- * (be aware though, that the proper interface isn't as obvious as it
- * may seem, there are various conflicting requirements.
- */
-int
-sysctlnametomib(const char *name, int *mibp, size_t *sizep)
-{
-	int oid[2];
-	int error;
-	oid[0] = 0;
-	oid[1] = 3;
-	*sizep *= sizeof(int);
-	error = sysctl(oid, 2, mibp, sizep, name, strlen(name));
-	*sizep /= sizeof(int);
-	return (error);
-}
 
 static int
 rtems_bsd_sysgen_open_error(
