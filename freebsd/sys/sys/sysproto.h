@@ -2027,9 +2027,7 @@ int	sys_rtprio(struct thread *, struct rtprio_args *);
 int	sys_semsys(struct thread *, struct semsys_args *);
 int	sys_msgsys(struct thread *, struct msgsys_args *);
 int	sys_shmsys(struct thread *, struct shmsys_args *);
-#endif /* __rtems__ */
 int	sys_setfib(struct thread *, struct setfib_args *);
-#ifndef __rtems__
 int	sys_ntp_adjtime(struct thread *, struct ntp_adjtime_args *);
 int	sys_setgid(struct thread *, struct setgid_args *);
 int	sys_setegid(struct thread *, struct setegid_args *);

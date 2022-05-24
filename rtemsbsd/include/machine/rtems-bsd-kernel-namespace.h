@@ -5872,7 +5872,6 @@
 #define	sys_select _bsd_sys_select
 #define	sys_sendmsg _bsd_sys_sendmsg
 #define	sys_sendto _bsd_sys_sendto
-#define	sys_setfib _bsd_sys_setfib
 #define	sys_setsockopt _bsd_sys_setsockopt
 #define	sys_shutdown _bsd_sys_shutdown
 #define	sys_socket _bsd_sys_socket

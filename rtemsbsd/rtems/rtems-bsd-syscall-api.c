@@ -645,20 +645,6 @@ sendmsg(int socket, const struct msghdr *message, int flags)
 }
 
 int
-setfib(int fibnum)
-{
-	struct thread *td = rtems_bsd_get_curthread_or_null();
-	int error;
-	if (td != NULL) {
-		struct setfib_args ua = { .fibnum = fibnum };
-		error = sys_setfib(td, &ua);
-	} else {
-		error = ENOMEM;
-	}
-	return rtems_bsd_error_to_status_and_errno(error);
-}
-
-int
 setsockopt(int socket, int level, int option_name, const void *option_value,
     socklen_t option_len)
 {
