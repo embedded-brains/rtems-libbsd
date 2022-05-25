@@ -1598,12 +1598,12 @@ test_kqueue_unsupported_ops(void)
 	errno = 0;
 	n = read(kq, &buf[0], sizeof(buf));
 	assert(n == -1);
-	assert(errno == EOPNOTSUPP);
+	assert(errno == ENOTSUP);
 
 	errno = 0;
 	n = write(kq, &buf[0], sizeof(buf));
 	assert(n == -1);
-	assert(errno == EOPNOTSUPP);
+	assert(errno == ENOTSUP);
 
 	errno = 0;
 	rv = ioctl(kq, 0);
@@ -1643,8 +1643,7 @@ no_mem_kqueue_fstat(int fd)
 	int rv;
 
 	rv = fstat(fd, &st);
-	assert(rv == -1);
-	assert(errno == ENOMEM);
+	assert(rv == 0);
 }
 
 static void

@@ -384,54 +384,6 @@ getsockopt(int socket, int level, int option_name,
 }
 
 int
-kqueue(void)
-{
-	struct thread *td = rtems_bsd_get_curthread_or_null();
-	struct kqueue_args ua = {};
-	int error;
-	if (RTEMS_BSD_SYSCALL_TRACE) {
-		printf("bsd: sys: kqueue:\n");
-	}
-	if (td == NULL) {
-		return rtems_bsd_error_to_status_and_errno(ENOMEM);
-	}
-	error = sys_kqueue(td, &ua);
-	if (error != 0) {
-		return rtems_bsd_error_to_status_and_errno(error);
-	}
-	return (td->td_retval[0]);
-}
-
-__weak_reference(kevent, _kevent);
-
-int
-kevent(int kq, const struct kevent *changelist, int nchanges,
-    struct kevent *eventlist, int nevents, const struct timespec *timeout)
-{
-	struct thread *td = rtems_bsd_get_curthread_or_null();
-	struct kevent_args ua;
-	int ffd;
-	int error;
-	if (RTEMS_BSD_SYSCALL_TRACE) {
-		printf("bsd: sys: kevent: %d\n", kq);
-	}
-	if (td == NULL) {
-		return rtems_bsd_error_to_status_and_errno(ENOMEM);
-	}
-	ua.fd = kq;
-	ua.changelist = changelist;
-	ua.nchanges = nchanges;
-	ua.eventlist = eventlist;
-	ua.nevents = nevents;
-	ua.timeout = timeout;
-	error = sys_kevent(td, &ua);
-	if (error != 0) {
-		return rtems_bsd_error_to_status_and_errno(error);
-	}
-	return td->td_retval[0];
-}
-
-int
 listen(int socket, int backlog)
 {
 	struct thread *td = rtems_bsd_get_curthread_or_null();

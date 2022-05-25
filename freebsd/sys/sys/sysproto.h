@@ -2133,9 +2133,7 @@ int	sys_extattr_delete_file(struct thread *, struct extattr_delete_file_args *);
 int	sys_aio_waitcomplete(struct thread *, struct aio_waitcomplete_args *);
 int	sys_getresuid(struct thread *, struct getresuid_args *);
 int	sys_getresgid(struct thread *, struct getresgid_args *);
-#endif /* __rtems__ */
 int	sys_kqueue(struct thread *, struct kqueue_args *);
-#ifndef __rtems__
 int	sys_extattr_set_fd(struct thread *, struct extattr_set_fd_args *);
 int	sys_extattr_get_fd(struct thread *, struct extattr_get_fd_args *);
 int	sys_extattr_delete_fd(struct thread *, struct extattr_delete_fd_args *);
@@ -2298,9 +2296,7 @@ int	sys_fstatfs(struct thread *, struct fstatfs_args *);
 int	sys_getfsstat(struct thread *, struct getfsstat_args *);
 int	sys_fhstatfs(struct thread *, struct fhstatfs_args *);
 int	sys_mknodat(struct thread *, struct mknodat_args *);
-#endif /* __rtems__ */
 int	sys_kevent(struct thread *, struct kevent_args *);
-#ifndef __rtems__
 int	sys_cpuset_getdomain(struct thread *, struct cpuset_getdomain_args *);
 int	sys_cpuset_setdomain(struct thread *, struct cpuset_setdomain_args *);
 int	sys_getrandom(struct thread *, struct getrandom_args *);
