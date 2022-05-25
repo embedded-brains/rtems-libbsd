@@ -39,8 +39,7 @@
 
 #include <machine/rtems-bsd-kernel-space.h>
 
-#include <sys/types.h>
-#include <sys/file.h>
+#include <rtems/bsd/sys/file.h>
 
 struct file *
 rtems_bsd_get_file(int fd)
@@ -50,11 +49,11 @@ rtems_bsd_get_file(int fd)
 	if ((uint32_t) fd < rtems_libio_number_iops) {
 		unsigned int flags;
 
-		fp = rtems_bsd_fd_to_fp(fd);
-		flags = rtems_libio_iop_hold(&fp->f_io);
+		fp = &rtems_libio_iops[fd];
+		flags = rtems_libio_iop_hold(fp);
 
 		if ((flags & LIBIO_FLAGS_OPEN) == 0) {
-			rtems_libio_iop_drop(&fp->f_io);
+			rtems_libio_iop_drop(fp);
 			fp = NULL;
 		}
 	} else {
