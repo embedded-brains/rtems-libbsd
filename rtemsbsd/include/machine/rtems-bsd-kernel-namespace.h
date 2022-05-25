@@ -2871,13 +2871,11 @@
 #define	inp_inpcbtotcpcb _bsd_inp_inpcbtotcpcb
 #define	inp_ip_tos_get _bsd_inp_ip_tos_get
 #define	inp_ip_tos_set _bsd_inp_ip_tos_set
-#define	inp_lock_assert _bsd_inp_lock_assert
 #define	inp_rlock _bsd_inp_rlock
 #define	inp_runlock _bsd_inp_runlock
 #define	inp_setmoptions _bsd_inp_setmoptions
 #define	inp_so_options _bsd_inp_so_options
 #define	inp_to_cpuid _bsd_inp_to_cpuid
-#define	inp_unlock_assert _bsd_inp_unlock_assert
 #define	inp_wlock _bsd_inp_wlock
 #define	inp_wunlock _bsd_inp_wunlock
 #define	insmntque _bsd_insmntque
