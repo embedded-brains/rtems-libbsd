@@ -209,10 +209,12 @@ devfs_destroy_cdevpriv(struct cdev_privdata *p)
 
 #ifndef __rtems__
 static void
-#else /* __rtems__ */
-void
-#endif /* __rtems__ */
 devfs_fpdrop(struct file *fp)
+#else /* __rtems__ */
+#define	f_cdevpriv data1
+void
+devfs_fpdrop(rtems_libio_t *fp)
+#endif /* __rtems__ */
 {
 	struct cdev_privdata *p;
 

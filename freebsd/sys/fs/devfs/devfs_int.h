@@ -95,7 +95,8 @@ extern struct sx clone_drain_lock;
 extern struct mtx cdevpriv_mtx;
 extern TAILQ_HEAD(cdev_priv_list, cdev_priv) cdevp_list;
 #ifdef __rtems__
-void devfs_fpdrop(struct file *);
+struct rtems_libio_tt;
+void devfs_fpdrop(struct rtems_libio_tt *);
 #endif /* __rtems__ */
 
 #endif /* _KERNEL */
