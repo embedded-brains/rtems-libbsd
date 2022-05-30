@@ -3001,7 +3001,7 @@ nfsrpc_readdir(vnode_t vp, struct uio *uiop, nfsuint64 *cookiep,
 			dp->d_namlen = 2;
 #ifndef __rtems__
 			*((uint64_t *)dp->d_name) = 0;
-#else __rtems__
+#else /* __rtems__ */
 			dp->d_name[2] = '\0';
 #endif /* __rtems__ */
 			dp->d_name[0] = '.';
