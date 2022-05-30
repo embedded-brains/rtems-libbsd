@@ -45,67 +45,6 @@
 
 #include <rtems/libio.h>
 
-rtems_libio_t *
-rtems_bsd_libio_iop_allocate(void)
-{
-	rtems_libio_t *iop = rtems_libio_allocate();
-	if (iop != NULL) {
-		iop->pathinfo.mt_entry = &rtems_filesystem_null_mt_entry;
-		rtems_filesystem_location_add_to_mt_entry(&iop->pathinfo);
-	}
-	return iop;
-}
-
-int
-rtems_bsd_libio_iop_allocate_with_file(
-    struct thread *td, int fd, const rtems_filesystem_file_handlers_r *ops)
-{
-	rtems_libio_t *iop = rtems_bsd_libio_iop_allocate();
-	int iofd = -1;
-	if (iop != NULL) {
-		int error = rtems_bsd_libio_iop_set_bsd_fd(td, fd, iop, ops);
-		/*
-		 * The fp is held and needs to be dropped and that drops the
-		 * iop.
-		 */
-		if (error == 0) {
-			rtems_libio_iop_hold(iop);
-			iofd = rtems_libio_iop_to_descriptor(iop);
-		} else {
-			rtems_libio_free(iop);
-		}
-	}
-	return iofd;
-}
-
-int
-rtems_bsd_libio_iop_set_bsd_fd(struct thread *td, int fd, rtems_libio_t *iop,
-    const rtems_filesystem_file_handlers_r *ops)
-{
-	struct filedesc *fdp = td->td_proc->p_fd;
-	int error;
-	FILEDESC_XLOCK(fdp);
-	if (fd < fdp->fd_nfiles) {
-		struct file *fp = fget_locked(fdp, fd);
-		if (fp != NULL) {
-			rtems_bsd_libio_iop_set_bsd_file(iop, fp);
-			rtems_libio_iop_flags_set(iop,
-			    LIBIO_FLAGS_OPEN |
-				rtems_bsd_libio_fflag_to_flags(fp->f_flag));
-			if (ops != NULL)
-				iop->pathinfo.handlers = ops;
-			rtems_bsd_libio_iop_set_bsd_descriptor(iop, fd);
-			error = 0;
-		} else {
-			error = EBADF;
-		}
-	} else {
-		error = EBADF;
-	}
-	FILEDESC_XUNLOCK(fdp);
-	return error;
-}
-
 void
 rtems_bsd_libio_loc_set_vnode(
     rtems_filesystem_location_info_t *loc, struct vnode *vp)

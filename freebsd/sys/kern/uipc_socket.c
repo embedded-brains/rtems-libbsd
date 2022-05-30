@@ -3384,7 +3384,11 @@ sopoll_generic(struct socket *so, int events, struct ucred *active_cred,
 int
 soo_kqfilter(struct file *fp, struct knote *kn)
 {
+#ifndef __rtems__
 	struct socket *so = kn->kn_fp->f_data;
+#else /* __rtems__ */
+	struct socket *so = rtems_bsd_knote_to_file(kn)->f_data;
+#endif /* __rtems__ */
 	struct sockbuf *sb;
 	struct knlist *knl;
 
@@ -3594,7 +3598,11 @@ pru_sopoll_notsupp(struct socket *so, int events, struct ucred *cred,
 static void
 filt_sordetach(struct knote *kn)
 {
+#ifndef __rtems__
 	struct socket *so = kn->kn_fp->f_data;
+#else /* __rtems__ */
+	struct socket *so = rtems_bsd_knote_to_file(kn)->f_data;
+#endif /* __rtems__ */
 
 	so_rdknl_lock(so);
 	knlist_remove(&so->so_rdsel.si_note, kn, 1);
@@ -3609,7 +3617,11 @@ filt_soread(struct knote *kn, long hint)
 {
 	struct socket *so;
 
+#ifndef __rtems__
 	so = kn->kn_fp->f_data;
+#else /* __rtems__ */
+	so = rtems_bsd_knote_to_file(kn)->f_data;
+#endif /* __rtems__ */
 
 	if (SOLISTENING(so)) {
 		SOCK_LOCK_ASSERT(so);
@@ -3645,7 +3657,11 @@ filt_soread(struct knote *kn, long hint)
 static void
 filt_sowdetach(struct knote *kn)
 {
+#ifndef __rtems__
 	struct socket *so = kn->kn_fp->f_data;
+#else /* __rtems__ */
+	struct socket *so = rtems_bsd_knote_to_file(kn)->f_data;
+#endif /* __rtems__ */
 
 	so_wrknl_lock(so);
 	knlist_remove(&so->so_wrsel.si_note, kn, 1);
@@ -3660,7 +3676,11 @@ filt_sowrite(struct knote *kn, long hint)
 {
 	struct socket *so;
 
+#ifndef __rtems__
 	so = kn->kn_fp->f_data;
+#else /* __rtems__ */
+	so = rtems_bsd_knote_to_file(kn)->f_data;
+#endif /* __rtems__ */
 
 	if (SOLISTENING(so))
 		return (0);
@@ -3690,7 +3710,11 @@ filt_soempty(struct knote *kn, long hint)
 {
 	struct socket *so;
 
+#ifndef __rtems__
 	so = kn->kn_fp->f_data;
+#else /* __rtems__ */
+	so = rtems_bsd_knote_to_file(kn)->f_data;
+#endif /* __rtems__ */
 
 	if (SOLISTENING(so))
 		return (1);

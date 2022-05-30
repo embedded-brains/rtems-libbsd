@@ -113,6 +113,7 @@ getsockaddr_noalloc(struct sockaddr **namp, const struct sockaddr *uaddr, size_t
 #endif /* __rtems__ */
 static int sockargs(struct mbuf **, char *, socklen_t, int);
 
+#ifndef __rtems__
 /*
  * Convert a user file descriptor to a kernel file entry and check if required
  * capability rights are present.
@@ -140,6 +141,7 @@ getsock_cap(struct thread *td, int fd, cap_rights_t *rightsp,
 	*fpp = fp;
 	return (0);
 }
+#endif /* __rtems__ */
 
 /*
  * System call interface to the socket abstraction.
@@ -193,7 +195,9 @@ kern_socket(struct thread *td, int domain, int type, int protocol)
 			(void) fo_ioctl(fp, FIONBIO, &fflag, td->td_ucred, td);
 		td->td_retval[0] = fd;
 	}
+#ifndef __rtems__
 	fdrop(fp, td);
+#endif /* __rtems__ */
 	return (error);
 }
 
@@ -349,7 +353,9 @@ accept1(td, s, uname, anamelen, flags)
 		    sizeof(namelen));
 	if (error != 0)
 		fdclose(td, fp, td->td_retval[0]);
+#ifndef __rtems__
 	fdrop(fp, td);
+#endif /* __rtems__ */
 	free(name, M_SONAME);
 	return (error);
 }
@@ -472,8 +478,10 @@ done:
 		} else
 			*fp = NULL;
 	}
+#ifndef __rtems__
 	if (nfp != NULL)
 		fdrop(nfp, td);
+#endif /* __rtems__ */
 	fdrop(headfp, td);
 	return (error);
 }
@@ -692,15 +700,21 @@ kern_socketpair(struct thread *td, int domain, int type, int protocol,
 		(void) fo_ioctl(fp1, FIONBIO, &fflag, td->td_ucred, td);
 		(void) fo_ioctl(fp2, FIONBIO, &fflag, td->td_ucred, td);
 	}
+#ifndef __rtems__
 	fdrop(fp1, td);
 	fdrop(fp2, td);
+#endif /* __rtems__ */
 	return (0);
 free4:
 	fdclose(td, fp2, rsv[1]);
+#ifndef __rtems__
 	fdrop(fp2, td);
+#endif /* __rtems__ */
 free3:
 	fdclose(td, fp1, rsv[0]);
+#ifndef __rtems__
 	fdrop(fp1, td);
+#endif /* __rtems__ */
 free2:
 	if (so2 != NULL)
 		(void)soclose(so2);
@@ -1712,6 +1726,7 @@ getsockaddr(struct sockaddr **namp, caddr_t uaddr, size_t len)
 void
 m_dispose_extcontrolm(struct mbuf *m)
 {
+#ifndef __rtems__
 	struct cmsghdr *cm;
 	struct file *fp;
 	struct thread *td;
@@ -1752,4 +1767,5 @@ m_dispose_extcontrolm(struct mbuf *m)
 		}
 		m_chtype(m, MT_CONTROL);
 	}
+#endif /* __rtems__ */
 }

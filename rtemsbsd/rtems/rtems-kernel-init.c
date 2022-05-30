@@ -141,6 +141,10 @@ cpu_startup(void *dummy)
 }
 SYSINIT(cpu, SI_SUB_CPU, SI_ORDER_FIRST, cpu_startup, NULL);
 
+static struct filedesc p_fd = {
+    .fd_cmask = CMASK
+};
+
 /*
  * Create a single process. RTEMS is a single address, single process OS.
  */
@@ -166,8 +170,7 @@ proc0_init(void *dummy)
 	newcred->cr_ruidinfo = uifind(0);
 	p->p_ucred = newcred;
 	p->p_pid = getpid();
-	p->p_fd = fdinit(NULL, false);
-	p->p_fdtol = NULL;
+	p->p_fd = &p_fd;
 	rtems_sysvec.sv_flags = SV_ABI_FREEBSD;
 #ifdef __LP64__
 	rtems_sysvec.sv_flags |= SV_LP64;

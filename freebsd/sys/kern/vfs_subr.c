@@ -5365,7 +5365,11 @@ filt_vfsread(struct knote *kn, long hint)
 		return (0);
 
 	VI_LOCK(vp);
+#ifndef __rtems__
 	kn->kn_data = va.va_size - kn->kn_fp->f_offset;
+#else /* __rtems__ */
+	kn->kn_data = va.va_size - rtems_bsd_knote_to_file(kn)->f_offset;
+#endif /* __rtems__ */
 	res = (kn->kn_sfflags & NOTE_FILE_POLL) != 0 || kn->kn_data != 0;
 	VI_UNLOCK(vp);
 	return (res);

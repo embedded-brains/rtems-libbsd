@@ -805,12 +805,14 @@ kern_ioctl(struct thread *td, int fd, u_long com, caddr_t data)
 	}
 
 	switch (com) {
+#ifndef __rtems__
 	case FIONCLEX:
 		fdp->fd_ofiles[fd].fde_flags &= ~UF_EXCLOSE;
 		goto out;
 	case FIOCLEX:
 		fdp->fd_ofiles[fd].fde_flags |= UF_EXCLOSE;
 		goto out;
+#endif /* __rtems__ */
 	case FIONBIO:
 		if ((tmp = *(int *)data))
 			atomic_set_int(&fp->f_flag, FNONBLOCK);
@@ -1236,23 +1238,73 @@ selsetbits(fd_mask **ibits, fd_mask **obits, int idx, fd_mask bit, int events)
 	return (n);
 }
 
+#ifndef __rtems__
 static __inline int
 getselfd_cap(struct filedesc *fdp, int fd, struct file **fpp)
 {
-#ifdef __rtems__
-	rtems_libio_t *iop;
-	int ffd = rtems_bsd_libio_iop_hold(fd, &iop);
-	if (ffd < 0)
-		return EBADF;
-	if (iop != NULL) {
-		*fpp = NULL;
-		return 0;
-	}
-	fd = ffd;
-#endif /* __rtems__ */
 
 	return (fget_unlocked(fdp, fd, &cap_event_rights, fpp, NULL));
 }
+#else /* __rtems__ */
+static int
+getselfd_cap(struct filedesc *fdp, int fd, rtems_libio_t **fpp)
+{
+	rtems_libio_t *iop;
+	unsigned int actual_flags;
+
+	(void)fdp;
+
+	if ((uint32_t)fd >= rtems_libio_number_iops) {
+		return (EBADF);
+	}
+
+	iop = rtems_libio_iop(fd);
+	actual_flags = rtems_libio_iop_hold(iop);
+
+	if ((actual_flags & LIBIO_FLAGS_OPEN) != LIBIO_FLAGS_OPEN) {
+		rtems_libio_iop_drop(iop);
+		return (EBADF);
+	}
+
+	*fpp = iop;
+	return (0);
+}
+
+static inline rtems_libio_t *
+rtems_bsd_get_file_for_poll(int fd)
+{
+	rtems_libio_t *iop;
+	unsigned int actual_flags;
+
+	if ((uint32_t)fd >= rtems_libio_number_iops) {
+		return (NULL);
+	}
+
+	iop = rtems_libio_iop(fd);
+	actual_flags = rtems_libio_iop_hold(iop);
+
+	if ((actual_flags & LIBIO_FLAGS_OPEN) != LIBIO_FLAGS_OPEN) {
+		rtems_libio_iop_drop(iop);
+		return (NULL);
+	}
+
+	return (iop);
+}
+
+static inline int
+rtems_bsd_fo_poll(rtems_libio_t *iop, int events, struct ucred *active_cred,
+    struct thread *td)
+{
+	int error;
+
+	(void)active_cred;
+	(void)td;
+
+	error = ((*iop->pathinfo.handlers->poll_h)(iop, events));
+	rtems_libio_iop_drop(iop);
+	return (error);
+}
+#endif /* __rtems__ */
 
 /*
  * Traverse the list of fds attached to this thread's seltd and check for
@@ -1266,7 +1318,11 @@ selrescan(struct thread *td, fd_mask **ibits, fd_mask **obits)
 	struct seltd *stp;
 	struct selfd *sfp;
 	struct selfd *sfn;
+#ifndef __rtems__
 	struct file *fp;
+#else /* __rtems__ */
+	rtems_libio_t *fp;
+#endif /* __rtems__ */
 	fd_mask bit;
 	int fd, ev, n, idx;
 	int error;
@@ -1290,10 +1346,8 @@ selrescan(struct thread *td, fd_mask **ibits, fd_mask **obits)
 		ev = fo_poll(fp, selflags(ibits, idx, bit), td->td_ucred, td);
 		fdrop(fp, td);
 #else /* __rtems__ */
-		ev = rtems_bsd_libio_fo_poll(fd, fp, selflags(ibits, idx, bit),
-					     td->td_ucred, td);
-		if (fp != NULL)
-			fdrop(fp, td);
+		ev = rtems_bsd_fo_poll(fp, selflags(ibits, idx, bit),
+		    td->td_ucred, td);
 #endif /* __rtems__ */
 		if (ev != 0)
 			n += selsetbits(ibits, obits, idx, bit, ev);
@@ -1311,7 +1365,11 @@ static int
 selscan(struct thread *td, fd_mask **ibits, fd_mask **obits, int nfd)
 {
 	struct filedesc *fdp;
+#ifndef __rtems__
 	struct file *fp;
+#else /* __rtems__ */
+	rtems_libio_t *fp;
+#endif /* __rtems__ */
 	fd_mask bit;
 	int ev, flags, end, fd;
 	int n, idx;
@@ -1334,11 +1392,8 @@ selscan(struct thread *td, fd_mask **ibits, fd_mask **obits, int nfd)
 			ev = fo_poll(fp, flags, td->td_ucred, td);
 			fdrop(fp, td);
 #else /* __rtems__ */
-			ev = rtems_bsd_libio_fo_poll(fd, fp,
-						     selflags(ibits, idx, bit),
-						     td->td_ucred, td);
-			if (fp != NULL)
-				fdrop(fp, td);
+			ev = rtems_bsd_fo_poll(fp, flags, td->td_ucred,
+			    td);
 #endif /* __rtems__ */
 			if (ev != 0)
 				n += selsetbits(ibits, obits, idx, bit, ev);
@@ -1507,7 +1562,11 @@ pollrescan(struct thread *td)
 	struct selfd *sfn;
 	struct selinfo *si;
 	struct filedesc *fdp;
+#ifndef __rtems__
 	struct file *fp;
+#else /* __rtems__ */
+	rtems_libio_t *fp;
+#endif /* __rtems__ */
 	struct pollfd *fd;
 	int n;
 
@@ -1524,24 +1583,15 @@ pollrescan(struct thread *td)
 			continue;
 #ifndef __rtems__
 		fp = fdp->fd_ofiles[fd->fd].fde_file;
+#else /* __rtems__ */
+		fp = rtems_bsd_get_file_for_poll(fd->fd);
+#endif /* __rtems__ */
 #ifdef CAPABILITIES
 		if (fp == NULL ||
 		    cap_check(cap_rights(fdp, fd->fd), &cap_event_rights) != 0)
 #else
 		if (fp == NULL)
 #endif
-#else /* __rtems__ */
-		rtems_libio_t* iop;
-		int ffd = rtems_bsd_libio_iop_hold(fd->fd, &iop);
-		if (ffd >= 0) {
-			if (iop == NULL) {
-				fp = fdp->fd_ofiles[ffd].fde_file;
-			} else {
-				fp = NULL;
-			}
-		}
-		else
-#endif /* __rtems__ */
 		{
 			fd->revents = POLLNVAL;
 			n++;
@@ -1555,7 +1605,8 @@ pollrescan(struct thread *td)
 #ifndef __rtems__
 		fd->revents = fo_poll(fp, fd->events, td->td_ucred, td);
 #else /* __rtems__ */
-		fd->revents = rtems_bsd_libio_fo_poll(ffd, fp, fd->events, td->td_ucred, td);
+		fd->revents = rtems_bsd_fo_poll(fp, fd->events, td->td_ucred,
+		    td);
 #endif /* __rtems__ */
 		if (fd->revents != 0)
 			n++;
@@ -1592,7 +1643,11 @@ static int
 pollscan(struct thread *td, struct pollfd *fds, u_int nfd)
 {
 	struct filedesc *fdp = td->td_proc->p_fd;
+#ifndef __rtems__
 	struct file *fp;
+#else /* __rtems__ */
+        rtems_libio_t *fp;
+#endif /* __rtems__ */
 	int i, n = 0;
 
 	FILEDESC_SLOCK(fdp);
@@ -1609,24 +1664,15 @@ pollscan(struct thread *td, struct pollfd *fds, u_int nfd)
 		} else {
 #ifndef __rtems__
 			fp = fdp->fd_ofiles[fds->fd].fde_file;
+#else /* __rtems__ */
+			fp = rtems_bsd_get_file_for_poll(fds->fd);
+#endif /* __rtems__ */
 #ifdef CAPABILITIES
 			if (fp == NULL ||
 			    cap_check(cap_rights(fdp, fds->fd), &cap_event_rights) != 0)
 #else
 			if (fp == NULL)
 #endif
-#else /* __rtems__ */
-			rtems_libio_t* iop;
-			int ffd = rtems_bsd_libio_iop_hold(fds->fd, &iop);
-			if (ffd >= 0) {
-				if (iop == NULL) {
-					fp = fdp->fd_ofiles[ffd].fde_file;
-				} else {
-					fp = NULL;
-				}
-			}
-			if (ffd < 0)
-#endif /* __rtems__ */
 			{
 				fds->revents = POLLNVAL;
 				n++;
@@ -1640,7 +1686,7 @@ pollscan(struct thread *td, struct pollfd *fds, u_int nfd)
 				fds->revents = fo_poll(fp, fds->events,
 				    td->td_ucred, td);
 #else /* __rtems__ */
-				fds->revents = rtems_bsd_libio_fo_poll(ffd, fp, fds->events,
+				fds->revents = rtems_bsd_fo_poll(fp, fds->events,
 				    td->td_ucred, td);
 #endif /* __rtems__ */
 				/*

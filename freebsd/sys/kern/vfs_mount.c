@@ -950,7 +950,9 @@ vfs_domount_first(
 	VOP_UNLOCK(vp, 0);
 	EVENTHANDLER_DIRECT_INVOKE(vfs_mounted, mp, newdp, td);
 	VOP_UNLOCK(newdp, 0);
+#ifndef __rtems__
 	mountcheckdirs(vp, newdp);
+#endif /* __rtems__ */
 	vrele(newdp);
 	if ((mp->mnt_flag & MNT_RDONLY) == 0)
 		vfs_allocate_syncvnode(mp);

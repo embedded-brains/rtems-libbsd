@@ -237,11 +237,6 @@ dev_t rtems_bsd__makedev(int _M, int _m);
 #define SIGISMEMBER(set, signo) (0)
 
 /*
- * Special knote status bit to indicate the kn_fp is an iop.
- */
-#define KN_FP_IS_IOP       0x10000000
-
-/*
  * Ensure that padding bytes are zeroed and that the name is NUL-terminated.
  */
 struct dirent;

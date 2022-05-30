@@ -43,6 +43,7 @@
 #include <sys/file.h>
 #include <sys/filedesc.h>
 #include <sys/proc.h>
+#include <sys/socketvar.h>
 #include <sys/syscallsubr.h>
 #include <sys/sysproto.h>
 #include <sys/vnode.h>
@@ -63,7 +64,6 @@ static int rtems_bsd_sysgen_opendir(
     rtems_libio_t *iop, const char *path, int oflag, mode_t mode);
 static int rtems_bsd_sysgen_open(
     rtems_libio_t *iop, const char *path, int oflag, mode_t mode);
-static int rtems_bsd_sysgen_close(rtems_libio_t *iop);
 static ssize_t rtems_bsd_sysgen_read(
     rtems_libio_t *iop, void *buffer, size_t count);
 static ssize_t rtems_bsd_sysgen_readv(
@@ -166,6 +166,98 @@ const rtems_filesystem_file_handlers_r rtems_bsd_sysgen_imfsnodeops = {
 };
 
 int
+rtems_bsd_getsock(int fd, struct file **fpp, u_int *fflagp)
+{
+	int error;
+	rtems_libio_t *iop;
+	unsigned int actual_flags;
+	struct file *fp;
+
+	if ((uint32_t)fd >= rtems_libio_number_iops) {
+		error = EBADF;
+		goto bad;
+	}
+
+	iop = rtems_libio_iop(fd);
+	actual_flags = rtems_libio_iop_hold(iop);
+
+	if ((actual_flags & LIBIO_FLAGS_OPEN) != LIBIO_FLAGS_OPEN) {
+		error = EBADF;
+		goto drop;
+	}
+
+	if (iop->pathinfo.handlers->close_h != rtems_bsd_sysgen_close) {
+		error = ENOTSOCK;
+		goto drop;
+	}
+
+	fp = iop->data1;
+
+	if (fp->f_type != DTYPE_SOCKET) {
+		error = ENOTSOCK;
+		goto drop;
+	}
+
+	if (fflagp != NULL)
+		*fflagp = fp->f_flag;
+	*fpp = fp;
+	return (0);
+
+drop:
+	rtems_libio_iop_drop(iop);
+
+bad:
+	*fpp = NULL;
+	return (error);
+}
+
+struct file *
+rtems_bsd_iop_to_file(const rtems_libio_t *iop)
+{
+
+	if (iop->pathinfo.handlers->close_h != rtems_bsd_sysgen_close) {
+		return (NULL);
+	}
+
+	return (iop->data1);
+}
+
+int
+rtems_bsd_falloc(struct file **resultfp, int *resultfd)
+{
+	struct file *fp;
+	rtems_libio_t *iop;
+
+	fp = malloc(sizeof(*fp), M_TEMP, M_ZERO | M_NOWAIT);
+	*resultfp = fp;
+	if (fp == NULL) {
+		return (ENOMEM);
+	}
+
+	iop = rtems_libio_allocate();
+	if (iop == NULL) {
+		return (ENFILE);
+	}
+
+        fp->f_io = iop;
+        iop->data1 = fp;
+	iop->pathinfo.node_access = iop;
+	iop->pathinfo.handlers = &rtems_bsd_sysgen_nodeops;
+	iop->pathinfo.mt_entry = &rtems_filesystem_null_mt_entry;
+	rtems_filesystem_location_add_to_mt_entry(&iop->pathinfo);
+	*resultfd = rtems_libio_iop_to_descriptor(iop);
+	return (0);
+}
+
+void
+rtems_bsd_fdclose(struct file *fp)
+{
+
+	rtems_libio_free(fp->f_io);
+	free(fp, M_TEMP);
+}
+
+int
 accept(int socket, struct sockaddr *__restrict address,
     socklen_t *__restrict address_len)
 {
@@ -181,37 +273,14 @@ accept(int socket, struct sockaddr *__restrict address,
 	if (td == NULL) {
 		return rtems_bsd_error_to_status_and_errno(ENOMEM);
 	}
-	int ffd = rtems_bsd_libio_iop_hold(socket, NULL);
-	if (ffd < 0) {
-		return rtems_bsd_error_to_status_and_errno(EBADF);
-	}
-	ua.s = ffd;
+	ua.s = socket;
 	ua.name = address;
 	ua.anamelen = address_len;
 	error = sys_accept(td, &ua);
-	rtems_bsd_libio_iop_drop(socket);
 	if (error != 0) {
 		return rtems_bsd_error_to_status_and_errno(error);
 	}
-	iop = rtems_bsd_libio_iop_allocate();
-	afd = td->td_retval[0];
-	if (iop == NULL) {
-		kern_close(td, afd);
-		return rtems_bsd_error_to_status_and_errno(ENFILE);
-	}
-	error = rtems_bsd_libio_iop_set_bsd_fd(
-	    td, afd, iop, &rtems_bsd_sysgen_nodeops);
-	if (error != 0) {
-		rtems_bsd_libio_iop_free(iop);
-		kern_close(td, afd);
-		return rtems_bsd_error_to_status_and_errno(error);
-	}
-	if (RTEMS_BSD_SYSCALL_TRACE) {
-		printf("bsd: sys: accept: %d (%d) => %d -> %d\n", socket, ffd,
-		    rtems_libio_iop_to_descriptor(iop),
-		    rtems_bsd_libio_iop_to_descriptor(iop));
-	}
-	return rtems_libio_iop_to_descriptor(iop);
+	return (td->td_retval[0]);
 }
 
 int
@@ -219,7 +288,6 @@ bind(int socket, const struct sockaddr *address, socklen_t address_len)
 {
 	struct thread *td = rtems_bsd_get_curthread_or_null();
 	struct bind_args ua;
-	int ffd;
 	int error;
 	if (RTEMS_BSD_SYSCALL_TRACE) {
 		printf("bsd: sys: bind: %d\n", socket);
@@ -227,15 +295,10 @@ bind(int socket, const struct sockaddr *address, socklen_t address_len)
 	if (td == NULL) {
 		return rtems_bsd_error_to_status_and_errno(ENOMEM);
 	}
-	ffd = rtems_bsd_libio_iop_hold(socket, NULL);
-	if (ffd == -1) {
-		return rtems_bsd_error_to_status_and_errno(EBADF);
-	}
-	ua.s = ffd;
+	ua.s = socket;
 	ua.name = address;
 	ua.namelen = address_len;
 	error = sys_bind(td, &ua);
-	rtems_bsd_libio_iop_drop(socket);
 	return rtems_bsd_error_to_status_and_errno(error);
 }
 
@@ -244,7 +307,6 @@ connect(int socket, const struct sockaddr *address, socklen_t address_len)
 {
 	struct thread *td = rtems_bsd_get_curthread_or_null();
 	struct connect_args ua;
-	int ffd;
 	int error;
 	if (RTEMS_BSD_SYSCALL_TRACE) {
 		printf("bsd: sys: connect: %d\n", socket);
@@ -252,15 +314,10 @@ connect(int socket, const struct sockaddr *address, socklen_t address_len)
 	if (td == NULL) {
 		return rtems_bsd_error_to_status_and_errno(ENOMEM);
 	}
-	ffd = rtems_bsd_libio_iop_hold(socket, NULL);
-	if (ffd < 0) {
-		return rtems_bsd_error_to_status_and_errno(EBADF);
-	}
-	ua.s = ffd;
+	ua.s = socket;
 	ua.name = address;
 	ua.namelen = address_len;
 	error = sys_connect(td, &ua);
-	rtems_bsd_libio_iop_drop(socket);
 	return rtems_bsd_error_to_status_and_errno(error);
 }
 
@@ -270,7 +327,6 @@ getpeername(int socket, struct sockaddr *__restrict address,
 {
 	struct thread *td = rtems_bsd_get_curthread_or_null();
 	struct getpeername_args ua;
-	int ffd;
 	int error;
 	if (RTEMS_BSD_SYSCALL_TRACE) {
 		printf("bsd: sys: getpeername: %d\n", socket);
@@ -278,15 +334,10 @@ getpeername(int socket, struct sockaddr *__restrict address,
 	if (td == NULL) {
 		return rtems_bsd_error_to_status_and_errno(ENOMEM);
 	}
-	ffd = rtems_bsd_libio_iop_hold(socket, NULL);
-	if (ffd < 0) {
-		return rtems_bsd_error_to_status_and_errno(EBADF);
-	}
-	ua.fdes = ffd;
+	ua.fdes = socket;
 	ua.asa = address;
 	ua.alen = address_len;
 	error = sys_getpeername(td, &ua);
-	rtems_bsd_libio_iop_drop(socket);
 	return rtems_bsd_error_to_status_and_errno(error);
 }
 
@@ -296,7 +347,6 @@ getsockname(int socket, struct sockaddr *__restrict address,
 {
 	struct thread *td = rtems_bsd_get_curthread_or_null();
 	struct getsockname_args ua;
-	int ffd;
 	int error;
 	if (RTEMS_BSD_SYSCALL_TRACE) {
 		printf("bsd: sys: getsockname: %d\n", socket);
@@ -304,15 +354,10 @@ getsockname(int socket, struct sockaddr *__restrict address,
 	if (td == NULL) {
 		return rtems_bsd_error_to_status_and_errno(ENOMEM);
 	}
-	ffd = rtems_bsd_libio_iop_hold(socket, NULL);
-	if (ffd < 0) {
-		return rtems_bsd_error_to_status_and_errno(EBADF);
-	}
-	ua.fdes = ffd;
+	ua.fdes = socket;
 	ua.asa = address;
 	ua.alen = address_len;
 	error = sys_getsockname(td, &ua);
-	rtems_bsd_libio_iop_drop(socket);
 	return rtems_bsd_error_to_status_and_errno(error);
 }
 
@@ -322,7 +367,6 @@ getsockopt(int socket, int level, int option_name,
 {
 	struct thread *td = rtems_bsd_get_curthread_or_null();
 	struct getsockopt_args ua;
-	int ffd;
 	int error;
 	if (RTEMS_BSD_SYSCALL_TRACE) {
 		printf("bsd: sys: getsockopt: %d\n", socket);
@@ -330,17 +374,12 @@ getsockopt(int socket, int level, int option_name,
 	if (td == NULL) {
 		return rtems_bsd_error_to_status_and_errno(ENOMEM);
 	}
-	ffd = rtems_bsd_libio_iop_hold(socket, NULL);
-	if (ffd < 0) {
-		return rtems_bsd_error_to_status_and_errno(EBADF);
-	}
-	ua.s = ffd;
+	ua.s = socket;
 	ua.level = level;
 	ua.name = option_name;
 	ua.val = (caddr_t)option_value;
 	ua.avalsize = option_len;
 	error = sys_getsockopt(td, &ua);
-	rtems_bsd_libio_iop_drop(socket);
 	return rtems_bsd_error_to_status_and_errno(error);
 }
 
@@ -349,7 +388,6 @@ kqueue(void)
 {
 	struct thread *td = rtems_bsd_get_curthread_or_null();
 	struct kqueue_args ua = {};
-	rtems_libio_t *iop;
 	int error;
 	if (RTEMS_BSD_SYSCALL_TRACE) {
 		printf("bsd: sys: kqueue:\n");
@@ -357,28 +395,11 @@ kqueue(void)
 	if (td == NULL) {
 		return rtems_bsd_error_to_status_and_errno(ENOMEM);
 	}
-	iop = rtems_bsd_libio_iop_allocate();
-	if (iop == NULL) {
-		return rtems_bsd_error_to_status_and_errno(ENFILE);
-	}
 	error = sys_kqueue(td, &ua);
 	if (error != 0) {
-		goto out;
+		return rtems_bsd_error_to_status_and_errno(error);
 	}
-	error = rtems_bsd_libio_iop_set_bsd_fd(
-	    td, td->td_retval[0], iop, &rtems_bsd_sysgen_nodeops);
-	if (error == 0) {
-		if (RTEMS_BSD_SYSCALL_TRACE) {
-			printf("bsd: sys: kqueue: %d -> %d\n",
-			    rtems_libio_iop_to_descriptor(iop),
-			    rtems_bsd_libio_iop_to_descriptor(iop));
-		}
-		return rtems_libio_iop_to_descriptor(iop);
-	}
-	kern_close(td, rtems_libio_iop_to_descriptor(iop));
-out:
-	rtems_bsd_libio_iop_free(iop);
-	return rtems_bsd_error_to_status_and_errno(error);
+	return (td->td_retval[0]);
 }
 
 __weak_reference(kevent, _kevent);
@@ -397,18 +418,13 @@ kevent(int kq, const struct kevent *changelist, int nchanges,
 	if (td == NULL) {
 		return rtems_bsd_error_to_status_and_errno(ENOMEM);
 	}
-	ffd = rtems_bsd_libio_iop_hold(kq, NULL);
-	if (ffd < 0) {
-		return rtems_bsd_error_to_status_and_errno(EBADF);
-	}
-	ua.fd = ffd;
+	ua.fd = kq;
 	ua.changelist = changelist;
 	ua.nchanges = nchanges;
 	ua.eventlist = eventlist;
 	ua.nevents = nevents;
 	ua.timeout = timeout;
 	error = sys_kevent(td, &ua);
-	rtems_bsd_libio_iop_drop(kq);
 	if (error != 0) {
 		return rtems_bsd_error_to_status_and_errno(error);
 	}
@@ -420,7 +436,6 @@ listen(int socket, int backlog)
 {
 	struct thread *td = rtems_bsd_get_curthread_or_null();
 	struct listen_args ua;
-	int ffd;
 	int error;
 	if (RTEMS_BSD_SYSCALL_TRACE) {
 		printf("bsd: sys: listen: %d\n", socket);
@@ -428,14 +443,9 @@ listen(int socket, int backlog)
 	if (td == NULL) {
 		return rtems_bsd_error_to_status_and_errno(ENOMEM);
 	}
-	ffd = rtems_bsd_libio_iop_hold(socket, NULL);
-	if (ffd < 0) {
-		return rtems_bsd_error_to_status_and_errno(EBADF);
-	}
-	ua.s = ffd;
+	ua.s = socket;
 	ua.backlog = backlog;
 	error = sys_listen(td, &ua);
-	rtems_bsd_libio_iop_drop(socket);
 	return rtems_bsd_error_to_status_and_errno(error);
 }
 
@@ -507,7 +517,6 @@ recvfrom(int socket, void *__restrict buffer, size_t length, int flags,
 {
 	struct thread *td = rtems_bsd_get_curthread_or_null();
 	struct recvfrom_args ua;
-	int ffd;
 	int error;
 	if (RTEMS_BSD_SYSCALL_TRACE) {
 		printf("bsd: sys: recvfrom: %d\n", socket);
@@ -515,18 +524,13 @@ recvfrom(int socket, void *__restrict buffer, size_t length, int flags,
 	if (td == NULL) {
 		return rtems_bsd_error_to_status_and_errno(ENOMEM);
 	}
-	ffd = rtems_bsd_libio_iop_hold(socket, NULL);
-	if (ffd < 0) {
-		return rtems_bsd_error_to_status_and_errno(EBADF);
-	}
-	ua.s = ffd;
+	ua.s = socket;
 	ua.buf = buffer;
 	ua.len = length;
 	ua.flags = flags;
 	ua.from = address;
 	ua.fromlenaddr = address_len;
 	error = sys_recvfrom(td, &ua);
-	rtems_bsd_libio_iop_drop(socket);
 	if (error != 0) {
 		return rtems_bsd_error_to_status_and_errno(error);
 	}
@@ -538,7 +542,6 @@ recvmsg(int socket, struct msghdr *message, int flags)
 {
 	struct thread *td = rtems_bsd_get_curthread_or_null();
 	struct recvmsg_args ua;
-	int ffd;
 	int error;
 	if (RTEMS_BSD_SYSCALL_TRACE) {
 		printf("bsd: sys: recvmsg: %d\n", socket);
@@ -546,15 +549,10 @@ recvmsg(int socket, struct msghdr *message, int flags)
 	if (td == NULL) {
 		return rtems_bsd_error_to_status_and_errno(ENOMEM);
 	}
-	ffd = rtems_bsd_libio_iop_hold(socket, NULL);
-	if (ffd < 0) {
-		return rtems_bsd_error_to_status_and_errno(EBADF);
-	}
-	ua.s = ffd;
+	ua.s = socket;
 	ua.msg = message;
 	ua.flags = flags;
 	error = sys_recvmsg(td, &ua);
-	rtems_bsd_libio_iop_drop(socket);
 	if (error != 0) {
 		return rtems_bsd_error_to_status_and_errno(error);
 	}
@@ -591,7 +589,6 @@ sendto(int socket, const void *message, size_t length, int flags,
 {
 	struct thread *td = rtems_bsd_get_curthread_or_null();
 	struct sendto_args ua;
-	int ffd;
 	int error;
 	if (RTEMS_BSD_SYSCALL_TRACE) {
 		printf("bsd: sys: sendto: %d\n", socket);
@@ -599,18 +596,13 @@ sendto(int socket, const void *message, size_t length, int flags,
 	if (td == NULL) {
 		return rtems_bsd_error_to_status_and_errno(ENOMEM);
 	}
-	ffd = rtems_bsd_libio_iop_hold(socket, NULL);
-	if (ffd < 0) {
-		return rtems_bsd_error_to_status_and_errno(EBADF);
-	}
-	ua.s = ffd;
+	ua.s = socket;
 	ua.buf = (caddr_t)message;
 	ua.len = length;
 	ua.flags = flags;
 	ua.to = dest_addr;
 	ua.tolen = dest_len;
 	error = sys_sendto(td, &ua);
-	rtems_bsd_libio_iop_drop(socket);
 	if (error != 0) {
 		return rtems_bsd_error_to_status_and_errno(error);
 	}
@@ -622,7 +614,6 @@ sendmsg(int socket, const struct msghdr *message, int flags)
 {
 	struct thread *td = rtems_bsd_get_curthread_or_null();
 	struct sendmsg_args ua;
-	int ffd;
 	int error;
 	if (RTEMS_BSD_SYSCALL_TRACE) {
 		printf("bsd: sys: sendmsg: %d\n", socket);
@@ -630,15 +621,10 @@ sendmsg(int socket, const struct msghdr *message, int flags)
 	if (td == NULL) {
 		return rtems_bsd_error_to_status_and_errno(ENOMEM);
 	}
-	ffd = rtems_bsd_libio_iop_hold(socket, NULL);
-	if (ffd < 0) {
-		return rtems_bsd_error_to_status_and_errno(EBADF);
-	}
-	ua.s = ffd;
+	ua.s = socket;
 	ua.msg = message;
 	ua.flags = flags;
 	error = sys_sendmsg(td, &ua);
-	rtems_bsd_libio_iop_drop(socket);
 	return rtems_bsd_error_to_status_and_errno(error);
 }
 
@@ -648,7 +634,6 @@ setsockopt(int socket, int level, int option_name, const void *option_value,
 {
 	struct thread *td = rtems_bsd_get_curthread_or_null();
 	struct setsockopt_args ua;
-	int ffd;
 	int error;
 	if (RTEMS_BSD_SYSCALL_TRACE) {
 		printf("bsd: sys: setsockopt: %d\n", socket);
@@ -656,17 +641,12 @@ setsockopt(int socket, int level, int option_name, const void *option_value,
 	if (td == NULL) {
 		return rtems_bsd_error_to_status_and_errno(ENOMEM);
 	}
-	ffd = rtems_bsd_libio_iop_hold(socket, NULL);
-	if (ffd < 0) {
-		return rtems_bsd_error_to_status_and_errno(EBADF);
-	}
-	ua.s = ffd;
+	ua.s = socket;
 	ua.level = level;
 	ua.name = option_name;
 	ua.val = __DECONST(void *, option_value);
 	ua.valsize = option_len;
 	error = sys_setsockopt(td, &ua);
-	rtems_bsd_libio_iop_drop(socket);
 	return rtems_bsd_error_to_status_and_errno(error);
 }
 
@@ -674,7 +654,6 @@ int
 shutdown(int socket, int how)
 {
 	struct thread *td = rtems_bsd_get_curthread_or_null();
-	int ffd;
 	int error;
 	if (RTEMS_BSD_SYSCALL_TRACE) {
 		printf("bsd: sys: shutdown: %d\n", socket);
@@ -682,17 +661,8 @@ shutdown(int socket, int how)
 	if (td == NULL) {
 		return rtems_bsd_error_to_status_and_errno(ENOMEM);
 	}
-	ffd = rtems_bsd_libio_iop_hold(socket, NULL);
-	if (ffd < 0) {
-		return rtems_bsd_error_to_status_and_errno(EBADF);
-	}
-	if (rtems_bsd_is_libbsd_descriptor(rtems_libio_iop(socket))) {
-		struct shutdown_args ua = { .s = ffd, .how = how };
-		error = sys_shutdown(td, &ua);
-	} else {
-		error = ENOTSOCK;
-	}
-	rtems_bsd_libio_iop_drop(socket);
+	struct shutdown_args ua = { .s = socket, .how = how };
+	error = sys_shutdown(td, &ua);
 	return rtems_bsd_error_to_status_and_errno(error);
 }
 
@@ -700,45 +670,26 @@ int
 socket(int domain, int type, int protocol)
 {
 	struct thread *td;
-	rtems_libio_t *iop;
 	struct socket_args ua;
 	int error;
 	td = rtems_bsd_get_curthread_or_null();
 	if (td == NULL) {
 		return rtems_bsd_error_to_status_and_errno(ENOMEM);
 	}
-	iop = rtems_bsd_libio_iop_allocate();
-	if (iop == NULL) {
-		return rtems_bsd_error_to_status_and_errno(ENFILE);
-	}
 	ua.domain = domain;
 	ua.type = type;
 	ua.protocol = protocol;
 	error = sys_socket(td, &ua);
 	if (error != 0) {
-		rtems_bsd_libio_iop_free(iop);
 		return rtems_bsd_error_to_status_and_errno(error);
 	}
-	error = rtems_bsd_libio_iop_set_bsd_fd(
-	    td, td->td_retval[0], iop, &rtems_bsd_sysgen_nodeops);
-	if (error != 0) {
-		kern_close(td, td->td_retval[0]);
-		rtems_bsd_libio_iop_free(iop);
-		return rtems_bsd_error_to_status_and_errno(error);
-	}
-	if (RTEMS_BSD_SYSCALL_TRACE) {
-		printf("bsd: sys: socket: %d -> %d\n",
-		    rtems_libio_iop_to_descriptor(iop),
-		    rtems_bsd_libio_iop_to_descriptor(iop));
-	}
-	return rtems_libio_iop_to_descriptor(iop);
+	return (td->td_retval[0]);
 }
 
 int
 socketpair(int domain, int type, int protocol, int *socket_vector)
 {
 	struct thread *td;
-	rtems_libio_t *iop[2];
 	struct socketpair_args ua;
 	int error;
 	if (RTEMS_BSD_SYSCALL_TRACE) {
@@ -748,48 +699,15 @@ socketpair(int domain, int type, int protocol, int *socket_vector)
 	if (td == NULL) {
 		return rtems_bsd_error_to_status_and_errno(ENOMEM);
 	}
-	iop[0] = rtems_bsd_libio_iop_allocate();
-	if (iop[0] == NULL) {
-		return rtems_bsd_error_to_status_and_errno(ENFILE);
-	}
-	iop[1] = rtems_bsd_libio_iop_allocate();
-	if (iop[1] == NULL) {
-		rtems_bsd_libio_iop_free(iop[0]);
-		return rtems_bsd_error_to_status_and_errno(ENFILE);
-	}
 	ua.domain = domain;
 	ua.type = type;
 	ua.protocol = protocol;
 	ua.rsv = socket_vector;
 	error = sys_socketpair(td, &ua);
 	if (error != 0) {
-		goto out;
+		return rtems_bsd_error_to_status_and_errno(error);
 	}
-	error = rtems_bsd_libio_iop_set_bsd_fd(
-	    td, socket_vector[0], iop[0], &rtems_bsd_sysgen_nodeops);
-	if (error != 0) {
-		goto out;
-	}
-	error = rtems_bsd_libio_iop_set_bsd_fd(
-	    td, socket_vector[1], iop[1], &rtems_bsd_sysgen_nodeops);
-	if (error == 0) {
-		socket_vector[0] = rtems_libio_iop_to_descriptor(iop[0]);
-		socket_vector[1] = rtems_libio_iop_to_descriptor(iop[1]);
-		if (RTEMS_BSD_SYSCALL_TRACE) {
-			printf("bsd: sys: socketpair: %d -> %d, %d -> %d\n",
-			    socket_vector[0],
-			    rtems_bsd_libio_iop_to_descriptor(iop[0]),
-			    socket_vector[1],
-			    rtems_bsd_libio_iop_to_descriptor(iop[1]));
-		}
-		return 0;
-	}
-out:
-	kern_close(td, rtems_bsd_libio_iop_to_descriptor(iop[0]));
-	kern_close(td, rtems_bsd_libio_iop_to_descriptor(iop[1]));
-	rtems_bsd_libio_iop_free(iop[0]);
-	rtems_bsd_libio_iop_free(iop[1]);
-	return rtems_bsd_error_to_status_and_errno(error);
+	return (0);
 }
 
 
@@ -815,6 +733,7 @@ rtems_bsd_sysgen_open_node(
 	int opathlen;
 	int fd;
 	int error;
+	struct vnode *vn;
 
 	if (td == NULL) {
 		if (RTEMS_BSD_SYSCALL_TRACE) {
@@ -822,6 +741,18 @@ rtems_bsd_sysgen_open_node(
 		}
 		return rtems_bsd_error_to_status_and_errno(ENOMEM);
 	}
+
+
+	fp = malloc(sizeof(*fp), M_TEMP, M_ZERO | M_NOWAIT);
+	if (fp == NULL) {
+		return rtems_bsd_error_to_status_and_errno(ENOMEM);
+	}
+
+	refcount_init(&fp->f_count, 1);
+	fp->f_cred = crhold(td->td_ucred);
+	fp->f_ops = &badfileops;
+	fp->f_io = iop;
+	iop->data1 = fp;
 
 	fdp = td->td_proc->p_fd;
 
@@ -897,7 +828,7 @@ rtems_bsd_sysgen_open_node(
 	VREF(fdp->fd_cdir);
 
 	error = kern_openat(td, AT_FDCWD, RTEMS_DECONST(char *, opath),
-	    UIO_USERSPACE, oflag, mode);
+	    UIO_USERSPACE, oflag, mode, fp);
 
 	vrele(fdp->fd_cdir);
 
@@ -914,19 +845,10 @@ rtems_bsd_sysgen_open_node(
 	FILEDESC_XLOCK(fdp);
 	fdp->fd_cdir = cdir;
 	fdp->fd_rdir = rdir;
-	if (fd < fdp->fd_nfiles) {
-		struct vnode *vn;
-		fp = fget_locked(fdp, fd);
-		if (fp != NULL) {
-			vn = fp->f_vnode;
-		} else {
-			vn = NULL;
-		}
-		rtems_bsd_libio_loc_set_vnode(&iop->pathinfo, vn);
-	}
+	rtems_bsd_libio_loc_set_vnode(&iop->pathinfo, fp->f_vnode);
 	FILEDESC_XUNLOCK(fdp);
 
-	rtems_bsd_libio_iop_set_bsd_fd(td, fd, iop, &rtems_bsd_sysgen_fileops);
+        iop->pathinfo.handlers = &rtems_bsd_sysgen_fileops;
 
 	if (RTEMS_BSD_SYSCALL_TRACE) {
 		printf("bsd: sys: open: fd = %d vn=%p\n", fd,
@@ -953,28 +875,42 @@ rtems_bsd_sysgen_open(
 int
 rtems_bsd_sysgen_close(rtems_libio_t *iop)
 {
-	struct thread *td = curthread;
+	struct thread *td;
+	struct file *fp;
 	int error;
-	int ffd = rtems_bsd_libio_iop_to_descriptor(iop);
+
 	if (RTEMS_BSD_SYSCALL_TRACE) {
-		printf("bsd: sys: close: %d -> %d\n",
-		    rtems_libio_iop_to_descriptor(iop), ffd);
+		printf("bsd: sys: close: %d\n",
+		    rtems_libio_iop_to_descriptor(iop));
 	}
-	if (td != NULL) {
-		if (ffd >= 0) {
-			rtems_libio_iop_hold(iop);
-			error = kern_close(td, ffd);
-		} else {
-			error = EBADF;
+
+	td = rtems_bsd_get_curthread_or_null();
+	if (td == NULL) {
+		if (RTEMS_BSD_SYSCALL_TRACE) {
+			printf("bsd: sys: close: no curthread\n");
 		}
-	} else {
-		error = ENOMEM;
+		return (rtems_bsd_error_to_status_and_errno(ENOMEM));
 	}
+
+	fp = iop->data1;
+	BSD_ASSERT(fp->f_count == 1);
+	error = (fo_close(fp, td));
+	if (error != 0) {
+		if (RTEMS_BSD_SYSCALL_TRACE) {
+			printf("bsd: sys: close: error = %d\n", error);
+		}
+		return (rtems_bsd_error_to_status_and_errno(error));
+	}
+
 	if (RTEMS_BSD_SYSCALL_TRACE) {
-		printf("bsd: sys: close: %d: %d: %s\n",
-		    rtems_libio_iop_to_descriptor(iop), error, strerror(error));
+		printf("bsd: sys: close: success\n");
 	}
-	return rtems_bsd_error_to_status_and_errno(error);
+	FILEDESC_XLOCK(NULL);
+	knote_fdclose(td, rtems_libio_iop_to_descriptor(iop));
+	FILEDESC_XUNLOCK(NULL);
+	crfree(fp->f_cred);
+	free(fp, M_TEMP);
+	return (0);
 }
 
 ssize_t
@@ -982,7 +918,7 @@ rtems_bsd_sysgen_read(rtems_libio_t *iop, void *buffer, size_t count)
 {
 	struct thread *td = curthread;
 	struct vnode *vp = rtems_bsd_libio_iop_to_vnode(iop);
-	int fd = rtems_bsd_libio_iop_to_descriptor(iop);
+	int fd = rtems_libio_iop_to_descriptor(iop);
 	int error;
 	ssize_t size = 0;
 
@@ -1053,7 +989,7 @@ rtems_bsd_sysgen_read(rtems_libio_t *iop, void *buffer, size_t count)
 			.uio_rw = UIO_READ,
 			.uio_td = td };
 		error = kern_readv(
-		    td, rtems_bsd_libio_iop_to_descriptor(iop), &auio);
+		    td, rtems_libio_iop_to_descriptor(iop), &auio);
 		if (error == 0)
 			size = td->td_retval[0];
 	}
@@ -1098,7 +1034,7 @@ rtems_bsd_sysgen_readv(
 	auio.uio_resid = total;
 	auio.uio_segflg = UIO_USERSPACE;
 
-	error = kern_readv(td, rtems_bsd_libio_iop_to_descriptor(iop), &auio);
+	error = kern_readv(td, rtems_libio_iop_to_descriptor(iop), &auio);
 
 	if (error != 0)
 		return rtems_bsd_error_to_status_and_errno(error);
@@ -1136,7 +1072,7 @@ rtems_bsd_sysgen_write(rtems_libio_t *iop, const void *buffer, size_t count)
 	auio.uio_resid = count;
 	auio.uio_segflg = UIO_USERSPACE;
 
-	error = kern_writev(td, rtems_bsd_libio_iop_to_descriptor(iop), &auio);
+	error = kern_writev(td, rtems_libio_iop_to_descriptor(iop), &auio);
 
 	if (error != 0)
 		return rtems_bsd_error_to_status_and_errno(error);
@@ -1172,7 +1108,7 @@ rtems_bsd_sysgen_writev(
 	auio.uio_resid = total;
 	auio.uio_segflg = UIO_USERSPACE;
 
-	error = kern_writev(td, rtems_bsd_libio_iop_to_descriptor(iop), &auio);
+	error = kern_writev(td, rtems_libio_iop_to_descriptor(iop), &auio);
 
 	if (error != 0)
 		return rtems_bsd_error_to_status_and_errno(error);
@@ -1198,7 +1134,7 @@ rtems_bsd_sysgen_ioctl(
 		return rtems_bsd_error_to_status_and_errno(ENOMEM);
 	}
 	error = kern_ioctl(
-	    td, rtems_bsd_libio_iop_to_descriptor(iop), com, buffer);
+	    td, rtems_libio_iop_to_descriptor(iop), com, buffer);
 	return rtems_bsd_error_to_status_and_errno(error);
 }
 
@@ -1218,7 +1154,7 @@ rtems_bsd_sysgen_lseek(rtems_libio_t *iop, off_t offset, int whence)
 		return rtems_bsd_error_to_status_and_errno(ENOMEM);
 	}
 	error = kern_lseek(
-	    td, rtems_bsd_libio_iop_to_descriptor(iop), offset, whence);
+	    td, rtems_libio_iop_to_descriptor(iop), offset, whence);
 	if (error != 0) {
 		return rtems_bsd_error_to_status_and_errno(error);
 	}
@@ -1260,9 +1196,7 @@ rtems_bsd_sysgen_fstat(
 {
 	struct thread *td = curthread;
 	rtems_libio_t *iop = rtems_bsd_libio_loc_to_iop(loc);
-	struct filedesc *fdp;
 	struct file *fp = NULL;
-	int fd;
 	int error;
 	if (iop == NULL) {
 		if (RTEMS_BSD_SYSCALL_TRACE) {
@@ -1270,22 +1204,13 @@ rtems_bsd_sysgen_fstat(
 		}
 		return rtems_bsd_error_to_status_and_errno(ENXIO);
 	}
-	fd = rtems_bsd_libio_iop_to_descriptor(iop);
-	if (RTEMS_BSD_SYSCALL_TRACE) {
-		printf("bsd: sys: fstat: %d\n", fd);
-	}
 	if (td == NULL) {
 		if (RTEMS_BSD_SYSCALL_TRACE) {
 			printf("bsd: sys: fstat: no curthread\n");
 		}
 		return rtems_bsd_error_to_status_and_errno(ENOMEM);
 	}
-	fdp = td->td_proc->p_fd;
-	FILEDESC_XLOCK(fdp);
-	if (fd < fdp->fd_nfiles) {
-		fp = fget_locked(fdp, fd);
-	}
-	FILEDESC_XUNLOCK(fdp);
+	fp = rtems_bsd_iop_to_file(iop);
 	if (fp != NULL) {
 		error = fo_stat(fp, buf, NULL, td);
 	} else {
@@ -1300,11 +1225,9 @@ rtems_bsd_sysgen_imfsfstat(
 {
 	struct thread *td = curthread;
 	struct socket *so = rtems_bsd_libio_imfs_loc_to_so(loc);
-	struct filedesc *fdp;
 	struct file *fp = NULL;
-	struct socket *fd_so = NULL;
-	int fd;
 	int error;
+	int fd;
 	if (RTEMS_BSD_SYSCALL_TRACE) {
 		printf("bsd: sys: imfsfstat: socket=%p\n", so);
 	}
@@ -1314,17 +1237,22 @@ rtems_bsd_sysgen_imfsfstat(
 		}
 		return rtems_bsd_error_to_status_and_errno(ENOMEM);
 	}
-	fdp = td->td_proc->p_fd;
-	FILEDESC_XLOCK(fdp);
-	for (fd = 0; fd < fdp->fd_nfiles; fd++) {
-		fp = fget_locked(fdp, fd);
-		fd_so = fp->f_data;
-		if (so == fd_so) {
+	rtems_libio_lock();
+	for (fd = 0; fd < (int)rtems_libio_number_iops; ++fd) {
+		rtems_libio_t *iop;
+
+		iop = rtems_libio_iop(fd);
+		if (iop->pathinfo.handlers == NULL) {
+			continue;
+		}
+		fp = rtems_bsd_iop_to_file(iop);
+		if (fp != NULL && fp->f_data == so) {
 			break;
 		}
+
 		fp = NULL;
 	}
-	FILEDESC_XUNLOCK(fdp);
+	rtems_libio_unlock();
 	if (fp != NULL) {
 		if (RTEMS_BSD_SYSCALL_TRACE) {
 			printf("bsd: sys: imfsfstat: %d\n", fd);
@@ -1351,7 +1279,7 @@ rtems_bsd_sysgen_ftruncate(rtems_libio_t *iop, off_t length)
 		return rtems_bsd_error_to_status_and_errno(ENOMEM);
 	}
 	error = kern_ftruncate(
-	    td, rtems_bsd_libio_iop_to_descriptor(iop), length);
+	    td, rtems_libio_iop_to_descriptor(iop), length);
 	return rtems_bsd_error_to_status_and_errno(error);
 }
 
@@ -1369,7 +1297,7 @@ rtems_bsd_sysgen_fsync(rtems_libio_t *iop)
 		}
 		return rtems_bsd_error_to_status_and_errno(ENOMEM);
 	}
-	error = kern_fsync(td, rtems_bsd_libio_iop_to_descriptor(iop), true);
+	error = kern_fsync(td, rtems_libio_iop_to_descriptor(iop), true);
 	return rtems_bsd_error_to_status_and_errno(error);
 }
 
@@ -1387,7 +1315,7 @@ rtems_bsd_sysgen_fdatasync(rtems_libio_t *iop)
 		}
 		return rtems_bsd_error_to_status_and_errno(ENOMEM);
 	}
-	error = kern_fsync(td, rtems_bsd_libio_iop_to_descriptor(iop), false);
+	error = kern_fsync(td, rtems_libio_iop_to_descriptor(iop), false);
 	return rtems_bsd_error_to_status_and_errno(error);
 }
 
@@ -1423,7 +1351,7 @@ rtems_bsd_sysgen_fcntl(rtems_libio_t *iop, int cmd)
 	}
 	if (arg >= 0) {
 		error = kern_fcntl(
-		    td, rtems_bsd_libio_iop_to_descriptor(iop), cmd, arg);
+		    td, rtems_libio_iop_to_descriptor(iop), cmd, arg);
 		/* no return path with the RTEMS API for get calls */
 	}
 	return rtems_bsd_error_to_status_and_errno(error);
@@ -1432,13 +1360,23 @@ rtems_bsd_sysgen_fcntl(rtems_libio_t *iop, int cmd)
 int
 rtems_bsd_sysgen_poll(rtems_libio_t *iop, int events)
 {
-	printf("rtems_bsd_sysgen_poll called!\n");
-	return rtems_bsd_error_to_status_and_errno(EOPNOTSUPP);
+	struct thread *td;
+	struct file *fp;
+
+	td = rtems_bsd_get_curthread_or_null();
+	if (td == NULL) {
+		return (ENOMEM);
+	}
+
+	fp = iop->data1;
+	return (fo_poll(fp, events, td->td_ucred, td));
 }
 
 int
 rtems_bsd_sysgen_kqfilter(rtems_libio_t *iop, struct knote *kn)
 {
-	printf("rtems_bsd_sysgen_kqfilter called!\n");
-	return rtems_bsd_error_to_status_and_errno(EOPNOTSUPP);
+	struct file *fp;
+
+	fp = iop->data1;
+	return (fo_kqfilter(fp, kn));
 }

@@ -2146,6 +2146,7 @@ static int __read_mostly disablecwd;
 SYSCTL_INT(_debug, OID_AUTO, disablecwd, CTLFLAG_RW, &disablecwd, 0,
    "Disable the getcwd syscall");
 
+#ifndef __rtems__
 /* Implementation of the getcwd syscall. */
 int
 sys___getcwd(struct thread *td, struct __getcwd_args *uap)
@@ -2196,6 +2197,7 @@ kern___getcwd(struct thread *td, char *buf, enum uio_seg bufseg, size_t buflen,
 	free(tmpbuf, M_TEMP);
 	return (error);
 }
+#endif /* __rtems__ */
 
 /*
  * Thus begins the fullpath magic.

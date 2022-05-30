@@ -381,7 +381,9 @@ namei(struct nameidata *ndp)
 	FILEDESC_SLOCK(fdp);
 	ndp->ni_rootdir = fdp->fd_rdir;
 	vrefact(ndp->ni_rootdir);
+#ifndef __rtems__
 	ndp->ni_topdir = fdp->fd_jdir;
+#endif /* __rtems__ */
 
 	/*
 	 * If we are auditing the kernel pathname, save the user pathname.
@@ -837,7 +839,9 @@ dirloop:
 			pr = NULL;
 #endif /* __rtems__ */
 			if (dp == ndp->ni_rootdir || 
+#ifndef __rtems__
 			    dp == ndp->ni_topdir || 
+#endif /* __rtems__ */
 			    dp == rootvnode ||
 			    pr != NULL ||
 			    ((dp->v_vflag & VV_ROOT) != 0 &&

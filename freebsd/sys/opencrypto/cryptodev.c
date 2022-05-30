@@ -1513,17 +1513,10 @@ cryptoioctl(struct cdev *dev, u_long cmd, caddr_t data, int flag, struct thread 
 		}
 		/* falloc automatically provides an extra reference to 'f'. */
 		finit(f, FREAD | FWRITE, DTYPE_CRYPTO, fcr, &cryptofops);
-#ifdef __rtems__
-		fd = rtems_bsd_libio_iop_allocate_with_file(td, fd, &rtems_bsd_sysgen_nodeops);
-		if (fd < 0) {
-			fdclose(td, f, fd);
-			mtx_destroy(&fcr->lock);
-			free(fcr, M_XDATA);
-			return (error);
-		}
-#endif /* __rtems__ */
 		*(u_int32_t *)data = fd;
+#ifndef __rtems__
 		fdrop(f, td);
+#endif /* __rtems__ */
 		break;
 	case CRIOFINDDEV:
 		error = cryptodev_find((struct crypt_find_op *)data);

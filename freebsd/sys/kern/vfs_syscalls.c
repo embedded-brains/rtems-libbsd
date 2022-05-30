@@ -1013,6 +1013,7 @@ flags_to_rights(int flags, cap_rights_t *rightsp)
 #endif /* __rtems__ */
 }
 
+#ifndef __rtems__
 /*
  * Check permissions, allocate an open file structure, and call the device
  * open routine if any.
@@ -1048,14 +1049,22 @@ sys_openat(struct thread *td, struct openat_args *uap)
 	return (kern_openat(td, uap->fd, uap->path, UIO_USERSPACE, uap->flag,
 	    uap->mode));
 }
+#endif /* __rtems__ */
 
 int
+#ifndef __rtems__
 kern_openat(struct thread *td, int fd, char *path, enum uio_seg pathseg,
     int flags, int mode)
+#else /* __rtems__ */
+kern_openat(struct thread *td, int fd, char *path, enum uio_seg pathseg,
+    int flags, int mode, struct file *fp)
+#endif /* __rtems__ */
 {
 	struct proc *p = td->td_proc;
 	struct filedesc *fdp = p->p_fd;
+#ifndef __rtems__
 	struct file *fp;
+#endif /* __rtems__ */
 	struct vnode *vp;
 	struct nameidata nd;
 	cap_rights_t rights;
@@ -1088,9 +1097,14 @@ kern_openat(struct thread *td, int fd, char *path, enum uio_seg pathseg,
 	 * Allocate a file structure. The descriptor to reference it
 	 * is allocated and set by finstall() below.
 	 */
+#ifndef __rtems__
 	error = falloc_noinstall(td, &fp);
 	if (error != 0)
 		return (error);
+#else /* __rtems__ */
+	rtems_libio_iop_hold(fp->f_io);
+	error = 0;
+#endif /* __rtems__ */
 	/*
 	 * An extra reference on `fp' has been held for us by
 	 * falloc_noinstall().
@@ -1164,12 +1178,15 @@ kern_openat(struct thread *td, int fd, char *path, enum uio_seg pathseg,
 	}
 
 	VOP_UNLOCK(vp, 0);
+#ifndef __rtems__
 	if (flags & O_TRUNC) {
 		error = fo_truncate(fp, 0, td->td_ucred, td);
 		if (error != 0)
 			goto bad;
 	}
+#endif /* __rtems__ */
 success:
+#ifndef __rtems__
 	/*
 	 * If we haven't already installed the FD (for dupfdopen), do so now.
 	 */
@@ -1191,6 +1208,7 @@ success:
 	} else {
 		filecaps_free(&nd.ni_filecaps);
 	}
+#endif /* __rtems__ */
 
 	/*
 	 * Release our private reference, leaving the one associated with
@@ -4371,6 +4389,7 @@ sys_fhreadlink(struct thread *td, struct fhreadlink_args *uap)
 	return (error);
 }
 
+#ifndef __rtems__
 /*
  * syscall for the rpc.lockd to use to translate a NFS file handle into an
  * open descriptor.
@@ -4458,6 +4477,7 @@ bad:
 	td->td_retval[0] = indx;
 	return (error);
 }
+#endif /* __rtems__ */
 
 /*
  * Stat an (NFS) file handle.
