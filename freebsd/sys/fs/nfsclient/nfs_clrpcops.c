@@ -52,6 +52,9 @@ __FBSDID("$FreeBSD$");
 #include <fs/nfs/nfsport.h>
 #include <sys/sysctl.h>
 #include <sys/taskqueue.h>
+#ifdef __rtems__
+#include <rtems/version.h>
+#endif /* __rtems__ */
 
 SYSCTL_DECL(_vfs_nfs);
 
