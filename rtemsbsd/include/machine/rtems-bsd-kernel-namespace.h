@@ -3476,8 +3476,6 @@
 #define	mallocarray _bsd_mallocarray
 #define	maxbcache _bsd_maxbcache
 #define	maxbcachebuf _bsd_maxbcachebuf
-#define	maxfiles _bsd_maxfiles
-#define	maxfilesperproc _bsd_maxfilesperproc
 #define	maxpipekva _bsd_maxpipekva
 #define	maxproc _bsd_maxproc
 #define	maxvfsconf _bsd_maxvfsconf

@@ -243,8 +243,13 @@ struct xfile {
 extern struct fileops vnops;
 extern struct fileops badfileops;
 extern struct fileops socketops;
+#ifndef __rtems__
 extern int maxfiles;		/* kernel limit on number of open files */
 extern int maxfilesperproc;	/* per process limit on number of open files */
+#else /* __rtems__ */
+#define	maxfiles rtems_libio_number_iops
+#define	maxfilesperproc rtems_libio_number_iops
+#endif /* __rtems__ */
 extern volatile int openfiles;	/* actual number of open files */
 
 #ifndef __rtems__

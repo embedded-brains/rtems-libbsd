@@ -107,8 +107,6 @@ struct bintime tc_tick_bt;
 sbintime_t tc_tick_sbt;
 int tc_precexp;
 int maxproc;
-int maxfiles;
-int maxfilesperproc;
 int ngroups_max;
 int unmapped_buf_allowed;
 caddr_t unmapped_base;
@@ -213,8 +211,6 @@ rtems_bsd_initialize(void)
 	bio_transient_maxcnt = 1024;
 	sx_init(&allproc_lock, "allproc");
 
-	maxfiles = rtems_libio_number_iops;
-	maxfilesperproc = maxfiles;
 	maxproc = 16;
 	ngroups_max = 4;
 
