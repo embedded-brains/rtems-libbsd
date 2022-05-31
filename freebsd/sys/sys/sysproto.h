@@ -1975,8 +1975,8 @@ int	sys_getitimer(struct thread *, struct getitimer_args *);
 int	sys_getdtablesize(struct thread *, struct getdtablesize_args *);
 int	sys_dup2(struct thread *, struct dup2_args *);
 int	sys_fcntl(struct thread *, struct fcntl_args *);
-#endif /* __rtems__ */
 int	sys_select(struct thread *, struct select_args *);
+#endif /* __rtems__ */
 int	sys_fsync(struct thread *, struct fsync_args *);
 #ifndef __rtems__
 int	sys_setpriority(struct thread *, struct setpriority_args *);
@@ -2042,9 +2042,7 @@ int	sys_munlock(struct thread *, struct munlock_args *);
 int	sys_undelete(struct thread *, struct undelete_args *);
 int	sys_futimes(struct thread *, struct futimes_args *);
 int	sys_getpgid(struct thread *, struct getpgid_args *);
-#endif /* __rtems__ */
 int	sys_poll(struct thread *, struct poll_args *);
-#ifndef __rtems__
 int	sys_semget(struct thread *, struct semget_args *);
 int	sys_semop(struct thread *, struct semop_args *);
 int	sys_msgget(struct thread *, struct msgget_args *);

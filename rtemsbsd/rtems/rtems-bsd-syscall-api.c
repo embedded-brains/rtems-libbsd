@@ -401,68 +401,6 @@ listen(int socket, int backlog)
 	return rtems_bsd_error_to_status_and_errno(error);
 }
 
-int
-poll(struct pollfd fds[], nfds_t nfds, int timeout)
-{
-	struct thread *td = rtems_bsd_get_curthread_or_null();
-	struct poll_args ua;
-	int error;
-	if (RTEMS_BSD_SYSCALL_TRACE) {
-		printf("bsd: sys: poll: %d\n", nfds);
-	}
-	if (td == NULL) {
-		return rtems_bsd_error_to_status_and_errno(ENOMEM);
-	}
-	/*
-	 * Pass libio descriptors through as libio and bsd descriptors
-	 * can be in the list at the same time.
-	 */
-	ua.fds = &fds[0];
-	ua.nfds = nfds;
-	ua.timeout = timeout;
-	error = sys_poll(td, &ua);
-	if (error != 0) {
-		return rtems_bsd_error_to_status_and_errno(error);
-	}
-	return td->td_retval[0];
-}
-
-int
-pselect(int nfds, fd_set *readfds, fd_set *writefds, fd_set *errorfds,
-    const struct timespec *timeout, const sigset_t *set)
-{
-	struct thread *td;
-	struct timeval tv;
-	struct timeval *tvp;
-	int error;
-	if (RTEMS_BSD_SYSCALL_TRACE) {
-		printf("bsd: sys: pselect: %d\n", nfds);
-	}
-	if (set != NULL) {
-		return rtems_bsd_error_to_status_and_errno(ENOSYS);
-	}
-	td = rtems_bsd_get_curthread_or_null();
-	if (td == NULL) {
-		return rtems_bsd_error_to_status_and_errno(ENOMEM);
-	}
-	if (timeout != NULL) {
-		TIMESPEC_TO_TIMEVAL(&tv, timeout);
-		tvp = &tv;
-	} else {
-		tvp = NULL;
-	}
-	/*
-	 * Pass libio descriptors through as libio and bsd descriptors
-	 * can be in the list at the same time.
-	 */
-	error = kern_select(
-	    td, nfds, readfds, writefds, errorfds, tvp, NFDBITS);
-	if (error != 0) {
-		return rtems_bsd_error_to_status_and_errno(error);
-	}
-	return td->td_retval[0];
-}
-
 ssize_t
 recvfrom(int socket, void *__restrict buffer, size_t length, int flags,
     struct sockaddr *__restrict address, socklen_t *__restrict address_len)
@@ -505,30 +443,6 @@ recvmsg(int socket, struct msghdr *message, int flags)
 	ua.msg = message;
 	ua.flags = flags;
 	error = sys_recvmsg(td, &ua);
-	if (error != 0) {
-		return rtems_bsd_error_to_status_and_errno(error);
-	}
-	return td->td_retval[0];
-}
-
-int
-select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *errorfds,
-    struct timeval *timeout)
-{
-	struct thread *td = rtems_bsd_get_curthread_or_null();
-	int error;
-	if (RTEMS_BSD_SYSCALL_TRACE) {
-		printf("bsd: sys: select: %d\n", nfds);
-	}
-	if (td == NULL) {
-		return rtems_bsd_error_to_status_and_errno(ENOMEM);
-	}
-	/*
-	 * Pass libio descriptors through as libio and bsd descriptors
-	 * can be in the list at the same time.
-	 */
-	error = kern_select(
-	    td, nfds, readfds, writefds, errorfds, timeout, NFDBITS);
 	if (error != 0) {
 		return rtems_bsd_error_to_status_and_errno(error);
 	}

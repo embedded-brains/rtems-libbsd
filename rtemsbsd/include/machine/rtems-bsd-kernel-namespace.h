@@ -5840,8 +5840,6 @@
 #define	sys_open _bsd_sys_open
 #define	sys_openat _bsd_sys_openat
 #define	sys_pipe2 _bsd_sys_pipe2
-#define	sys_poll _bsd_sys_poll
-#define	sys_pselect _bsd_sys_pselect
 #define	sys_read _bsd_sys_read
 #define	sys_readlink _bsd_sys_readlink
 #define	sys_readlinkat _bsd_sys_readlinkat
@@ -5851,7 +5849,6 @@
 #define	sys_rename _bsd_sys_rename
 #define	sys_renameat _bsd_sys_renameat
 #define	sys_rmdir _bsd_sys_rmdir
-#define	sys_select _bsd_sys_select
 #define	sys_sendmsg _bsd_sys_sendmsg
 #define	sys_sendto _bsd_sys_sendto
 #define	sys_setsockopt _bsd_sys_setsockopt

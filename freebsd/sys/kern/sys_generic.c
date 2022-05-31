@@ -77,6 +77,19 @@ __FBSDID("$FreeBSD$");
 #endif
 
 #include <security/audit/audit.h>
+#ifdef __rtems__
+#include <machine/rtems-bsd-syscall-api.h>
+
+static int kern_select(struct thread *, int, fd_set *, fd_set *,
+    fd_set *, struct timeval *, int);
+
+__weak_symbol void
+bwillwrite(void)
+{
+
+	/* Do not pull in the VFS support only through this translation unit */
+}
+#endif /* __rtems__ */
 
 /*
  * The following macro defines how many bytes will be allocated from
@@ -259,7 +272,6 @@ freebsd6_pread(struct thread *td, struct freebsd6_pread_args *uap)
 	return (kern_pread(td, uap->fd, uap->buf, uap->nbyte, uap->offset));
 }
 #endif
-#endif /* __rtems__ */
 
 /*
  * Scatter read system call.
@@ -284,6 +296,7 @@ sys_readv(struct thread *td, struct readv_args *uap)
 	free(auio, M_IOV);
 	return (error);
 }
+#endif /* __rtems__ */
 
 int
 kern_readv(struct thread *td, int fd, struct uio *auio)
@@ -465,7 +478,6 @@ freebsd6_pwrite(struct thread *td, struct freebsd6_pwrite_args *uap)
 	return (kern_pwrite(td, uap->fd, uap->buf, uap->nbyte, uap->offset));
 }
 #endif
-#endif /* __rtems__ */
 
 /*
  * Gather write system call.
@@ -490,6 +502,7 @@ sys_writev(struct thread *td, struct writev_args *uap)
 	free(auio, M_IOV);
 	return (error);
 }
+#endif /* __rtems__ */
 
 int
 kern_writev(struct thread *td, int fd, struct uio *auio)
@@ -865,6 +878,7 @@ poll_no_poll(int events)
 	return (events & (POLLIN | POLLOUT | POLLRDNORM | POLLWRNORM));
 }
 
+#ifndef __rtems__
 int
 sys_pselect(struct thread *td, struct pselect_args *uap)
 {
@@ -898,7 +912,6 @@ kern_pselect(struct thread *td, int nd, fd_set *in, fd_set *ou, fd_set *ex,
 {
 	int error;
 
-#ifndef __rtems__
 	if (uset != NULL) {
 		error = kern_sigprocmask(td, SIG_SETMASK, uset,
 		    &td->td_oldsigmask, 0);
@@ -914,7 +927,6 @@ kern_pselect(struct thread *td, int nd, fd_set *in, fd_set *ou, fd_set *ex,
 		td->td_flags |= TDF_ASTPENDING;
 		thread_unlock(td);
 	}
-#endif /* __rtems__ */
 	error = kern_select(td, nd, in, ou, ex, tvp, abi_nfdbits);
 	return (error);
 }
@@ -943,6 +955,7 @@ sys_select(struct thread *td, struct select_args *uap)
 	return (kern_select(td, uap->nd, uap->in, uap->ou, uap->ex, tvp,
 	    NFDBITS));
 }
+#endif /* __rtems__ */
 
 /*
  * In the unlikely case when user specified n greater then the last
@@ -1171,6 +1184,65 @@ done:
 
 	return (error);
 }
+#ifdef __rtems__
+int
+select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *errorfds,
+    struct timeval *timeout)
+{
+	struct thread *td = rtems_bsd_get_curthread_or_null();
+	int error;
+
+	if (td != NULL) {
+		error = kern_select(td, nfds, readfds, writefds, errorfds,
+		    timeout, NFDBITS);
+	} else {
+		error = ENOMEM;
+	}
+
+	if (error == 0) {
+		return td->td_retval[0];
+	} else {
+		rtems_set_errno_and_return_minus_one(error);
+	}
+}
+
+int
+pselect(int nfds, fd_set *readfds, fd_set *writefds, fd_set *errorfds,
+    const struct timespec *timeout, const sigset_t *set)
+{
+	struct thread *td;
+	int error;
+
+	if (set != NULL) {
+		rtems_set_errno_and_return_minus_one(ENOSYS);
+	}
+
+	td = rtems_bsd_get_curthread_or_null();
+
+	if (td != NULL) {
+		struct timeval tv;
+		struct timeval *tvp;
+
+		if (timeout != NULL) {
+			TIMESPEC_TO_TIMEVAL(&tv, timeout);
+			tvp = &tv;
+		} else {
+			tvp = NULL;
+		}
+
+		error = kern_select(td, nfds, readfds, writefds, errorfds,
+		    tvp, NFDBITS);
+	} else {
+		error = ENOMEM;
+	}
+
+	if (error == 0) {
+		return td->td_retval[0];
+	} else {
+		rtems_set_errno_and_return_minus_one(error);
+	}
+}
+#endif /* __rtems__ */
 
 /* 
  * Convert a select bit set to poll flags.
@@ -1404,6 +1476,12 @@ selscan(struct thread *td, fd_mask **ibits, fd_mask **obits, int nfd)
 	return (0);
 }
 
+#ifdef __rtems__
+static int kern_poll(struct thread *td, struct pollfd *fds, u_int nfds,
+    struct timespec *tsp, sigset_t *uset);
+
+static
+#endif /* __rtems__ */
 int
 sys_poll(struct thread *td, struct poll_args *uap)
 {
@@ -1522,6 +1600,31 @@ out:
 		free(bits, M_TEMP);
 	return (error);
 }
+#ifdef __rtems__
+int
+poll(struct pollfd fds[], nfds_t nfds, int timeout)
+{
+	struct thread *td = rtems_bsd_get_curthread_or_null();
+	struct poll_args ua = {
+		.fds = &fds[0],
+		.nfds = nfds,
+		.timeout = timeout
+	};
+	int error;
+
+	if (td != NULL) {
+		error = sys_poll(td, &ua);
+	} else {
+		error = ENOMEM;
+	}
+
+	if (error == 0) {
+		return td->td_retval[0];
+	} else {
+		rtems_set_errno_and_return_minus_one(error);
+	}
+}
+#endif /* __rtems__ */
 
 #ifndef __rtems__
 int
