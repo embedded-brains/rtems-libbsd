@@ -59,6 +59,9 @@
  *	need a proper out-of-band
  */
 
+#ifdef __rtems__
+#include <rtems/bsd/sys/file.h>
+#endif /* __rtems__ */
 #include <sys/cdefs.h>
 __FBSDID("$FreeBSD$");
 
@@ -77,7 +80,9 @@ __FBSDID("$FreeBSD$");
 #include <sys/mbuf.h>
 #include <sys/mount.h>
 #include <sys/mutex.h>
+#ifndef __rtems__
 #include <sys/namei.h>
+#endif /* __rtems__ */
 #include <sys/proc.h>
 #include <sys/protosw.h>
 #include <sys/queue.h>
@@ -608,8 +613,7 @@ rtems_uipc_imfs_destroy(IMFS_jnode_t *node)
 }
 
 static const IMFS_node_control rtems_uipc_imfs_control =
-	IMFS_GENERIC_INITIALIZER(&rtems_bsd_sysgen_imfsnodeops,
-		rtems_uipc_imfs_initialize,
+    IMFS_GENERIC_INITIALIZER(&socketops, rtems_uipc_imfs_initialize,
     rtems_uipc_imfs_destroy);
 
 static const IMFS_node_control rtems_uipc_imfs_zombi_control =
@@ -617,13 +621,13 @@ static const IMFS_node_control rtems_uipc_imfs_zombi_control =
     IMFS_node_destroy_default);
 
 static void
-VOP_UNP_DETACH_rtems(IMFS_generic_t *vp)
+vop_unp_detach(IMFS_generic_t *vp)
 {
+
 	vp->Node.control = &rtems_uipc_imfs_zombi_control;
 	vp->context = NULL;
 }
-#undef VOP_UNP_DETACH
-#define VOP_UNP_DETACH VOP_UNP_DETACH_rtems
+#define	VOP_UNP_DETACH vop_unp_detach
 #endif /* __rtems__ */
 static int
 uipc_bindat(int fd, struct socket *so, struct sockaddr *nam, struct thread *td)
@@ -1727,7 +1731,7 @@ unp_connectat(int fd, struct socket *so, struct sockaddr *nam,
 	    &ctx, &soun->sun_path[0], (size_t)len, eval_flags,
 	    &rtems_filesystem_root, &rtems_filesystem_current);
 
-	if (currentloc->handlers == &rtems_bsd_sysgen_imfsnodeops) {
+	if (currentloc->handlers == &socketops) {
 		vp = currentloc->node_access;
 	} else {
 		vp = NULL;

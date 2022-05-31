@@ -384,18 +384,8 @@ int	getsockaddr(struct sockaddr **namp, caddr_t uaddr, size_t len);
 int	getsock_cap(struct thread *td, int fd, cap_rights_t *rightsp,
 	    struct file **fpp, u_int *fflagp, struct filecaps *havecaps);
 #else /* __rtems__ */
-int rtems_bsd_getsock(int fd, struct file **fpp, u_int *fflagp);
-
-static inline int
-getsock_cap(struct thread *td, int fd, cap_rights_t *rightsp,
-    struct file **fpp, u_int *fflagp, struct filecaps *havecaps)
-{
-
-	(void)td;
-	(void)rightsp;
-	(void)havecaps;
-	return (rtems_bsd_getsock(fd, fpp, fflagp));
-}
+int	getsockaddr(struct sockaddr **namp, const struct sockaddr *uaddr,
+	    size_t len);
 #endif /* __rtems__ */
 void	soabort(struct socket *so);
 int	soaccept(struct socket *so, struct sockaddr **nam);

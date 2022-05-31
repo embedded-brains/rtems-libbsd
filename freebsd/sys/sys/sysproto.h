@@ -1922,13 +1922,13 @@ int	sys_setuid(struct thread *, struct setuid_args *);
 int	sys_getuid(struct thread *, struct getuid_args *);
 int	sys_geteuid(struct thread *, struct geteuid_args *);
 int	sys_ptrace(struct thread *, struct ptrace_args *);
-#endif /* __rtems__ */
 int	sys_recvmsg(struct thread *, struct recvmsg_args *);
 int	sys_sendmsg(struct thread *, struct sendmsg_args *);
 int	sys_recvfrom(struct thread *, struct recvfrom_args *);
 int	sys_accept(struct thread *, struct accept_args *);
 int	sys_getpeername(struct thread *, struct getpeername_args *);
 int	sys_getsockname(struct thread *, struct getsockname_args *);
+#endif /* __rtems__ */
 int	sys_access(struct thread *, struct access_args *);
 int	sys_chflags(struct thread *, struct chflags_args *);
 int	sys_fchflags(struct thread *, struct fchflags_args *);
@@ -1980,20 +1980,16 @@ int	sys_select(struct thread *, struct select_args *);
 int	sys_fsync(struct thread *, struct fsync_args *);
 #ifndef __rtems__
 int	sys_setpriority(struct thread *, struct setpriority_args *);
-#endif /* __rtems__ */
 int	sys_socket(struct thread *, struct socket_args *);
 int	sys_connect(struct thread *, struct connect_args *);
-#ifndef __rtems__
 int	sys_getpriority(struct thread *, struct getpriority_args *);
-#endif /* __rtems__ */
 int	sys_bind(struct thread *, struct bind_args *);
 int	sys_setsockopt(struct thread *, struct setsockopt_args *);
 int	sys_listen(struct thread *, struct listen_args *);
-#ifndef __rtems__
 int	sys_gettimeofday(struct thread *, struct gettimeofday_args *);
 int	sys_getrusage(struct thread *, struct getrusage_args *);
-#endif /* __rtems__ */
 int	sys_getsockopt(struct thread *, struct getsockopt_args *);
+#endif /* __rtems__ */
 int	sys_readv(struct thread *, struct readv_args *);
 int	sys_writev(struct thread *, struct writev_args *);
 #ifndef __rtems__
@@ -2007,10 +2003,10 @@ int	sys_setregid(struct thread *, struct setregid_args *);
 int	sys_rename(struct thread *, struct rename_args *);
 int	sys_flock(struct thread *, struct flock_args *);
 int	sys_mkfifo(struct thread *, struct mkfifo_args *);
-#endif /* __rtems__ */
 int	sys_sendto(struct thread *, struct sendto_args *);
 int	sys_shutdown(struct thread *, struct shutdown_args *);
 int	sys_socketpair(struct thread *, struct socketpair_args *);
+#endif /* __rtems__ */
 int	sys_mkdir(struct thread *, struct mkdir_args *);
 int	sys_rmdir(struct thread *, struct rmdir_args *);
 #ifndef __rtems__

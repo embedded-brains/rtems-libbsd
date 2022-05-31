@@ -446,8 +446,7 @@ no_mem_socket_fstat(int fd)
 	int rv;
 
 	rv = fstat(fd, &st);
-	assert(rv == -1);
-	assert(errno == ENOMEM);
+	assert(rv == 0);
 }
 
 static void
@@ -456,8 +455,7 @@ no_mem_socket_shutdown(int fd)
 	int rv;
 
 	rv = shutdown(fd, SHUT_RDWR);
-	assert(rv == -1);
-	assert(errno == ENOMEM);
+	assert(rv == 0);
 }
 
 static void

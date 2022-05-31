@@ -33,6 +33,9 @@
  *	@(#)uipc_syscalls.c	8.4 (Berkeley) 2/21/94
  */
 
+#ifdef __rtems__
+#include <rtems/bsd/sys/file.h>
+#endif /* __rtems__ */
 #include <sys/cdefs.h>
 __FBSDID("$FreeBSD$");
 
@@ -78,9 +81,9 @@ __FBSDID("$FreeBSD$");
 static int sendit(struct thread *td, int s, struct msghdr *mp, int flags);
 static int recvit(struct thread *td, int s, struct msghdr *mp, void *namelenp);
 
+#ifndef __rtems__
 static int accept1(struct thread *td, int s, struct sockaddr *uname,
 		   socklen_t *anamelen, int flags);
-#ifndef __rtems__
 static int getsockname1(struct thread *td, struct getsockname_args *uap,
 			int compat);
 static int getpeername1(struct thread *td, struct getpeername_args *uap,
@@ -90,26 +93,15 @@ struct getsockaddr_sockaddr {
 	struct sockaddr	header;
 	char		data[SOCK_MAXADDRLEN - sizeof(struct sockaddr)];
 } __aligned(sizeof(long));
-/*
- * The getsockaddr is used else where with an allocation. Having a version
- * local that does not alloc is a nice optimisation but we need to maintain
- * the exported version. See nfs_mount in nfs_clvfsops.c.
- */
-static int
-getsockaddr_noalloc(struct sockaddr **namp, const struct sockaddr *uaddr, size_t len)
-{
-	struct sockaddr *sa;
 
-	if (len > SOCK_MAXADDRLEN)
-		return (ENAMETOOLONG);
-	if (len < offsetof(struct sockaddr, sa_data[0]))
-		return (EINVAL);
-	sa = memcpy(*namp, uaddr, len);
-	sa->sa_len = len;
-	return (0);
-}
-#define getsockaddr_hold getsockadd
-#define getsockaddr getsockaddr_noalloc
+static int kern_getsockname(struct thread *, int, struct sockaddr **,
+    socklen_t *);
+static int kern_listen(struct thread *, int, int);
+static int kern_setsockopt(struct thread *, int, int, int, const void *,
+    enum uio_seg, socklen_t);
+static int kern_shutdown(struct thread *, int, int);
+static int kern_socket(struct thread *, int, int, int);
+static int kern_socketpair(struct thread *, int, int, int, int *);
 #endif /* __rtems__ */
 static int sockargs(struct mbuf **, char *, socklen_t, int);
 
@@ -141,6 +133,46 @@ getsock_cap(struct thread *td, int fd, cap_rights_t *rightsp,
 	*fpp = fp;
 	return (0);
 }
+#else /* __rtems__ */
+static int
+rtems_bsd_getsock(int fd, struct file **fpp, u_int *fflagp)
+{
+	struct file *fp;
+	int error;
+
+	if ((uint32_t) fd < rtems_libio_number_iops) {
+		unsigned int flags;
+
+		fp = rtems_libio_iop(fd);
+		flags = rtems_libio_iop_hold(fp);
+		if ((flags & LIBIO_FLAGS_OPEN) == 0) {
+			rtems_libio_iop_drop(fp);
+			fp = NULL;
+			error = EBADF;
+		} else if (fp->pathinfo.handlers != &socketops) {
+			rtems_libio_iop_drop(fp);
+			fp = NULL;
+			error = ENOTSOCK;
+		} else {
+			if (fflagp != NULL) {
+				*fflagp = rtems_bsd_libio_flags_to_fflag(
+				    fp->flags);
+			}
+
+			error = 0;
+		}
+	} else {
+		fp = NULL;
+		error = EBADF;
+	}
+
+	*fpp = fp;
+
+	return (error);
+}
+
+#define	getsock_cap(td, fd, rights, fpp, fflagp, havecapsp) \
+    rtems_bsd_getsock(fd, fpp, fflagp)
 #endif /* __rtems__ */
 
 /*
@@ -150,6 +182,9 @@ getsock_cap(struct thread *td, int fd, cap_rights_t *rightsp,
 #define COMPAT_OLDSOCK
 #endif
 
+#ifdef __rtems__
+static
+#endif /* __rtems__ */
 int
 sys_socket(struct thread *td, struct socket_args *uap)
 {
@@ -200,7 +235,38 @@ kern_socket(struct thread *td, int domain, int type, int protocol)
 #endif /* __rtems__ */
 	return (error);
 }
+#ifdef __rtems__
+int
+socket(int domain, int type, int protocol)
+{
+	struct thread *td = rtems_bsd_get_curthread_or_null();
+	struct socket_args ua = {
+		.domain = domain,
+		.type = type,
+		.protocol = protocol
+	};
+	int error;
 
+	if (td != NULL) {
+		error = sys_socket(td, &ua);
+	} else {
+		error = ENOMEM;
+	}
+
+	if (error == 0) {
+		return td->td_retval[0];
+	} else {
+		rtems_set_errno_and_return_minus_one(error);
+	}
+}
+#endif /* __rtems__ */
+
+#ifdef __rtems__
+static int kern_bindat(struct thread *td, int dirfd, int fd,
+    struct sockaddr *sa);
+
+static
+#endif /* __rtems__ */
 int
 sys_bind(struct thread *td, struct bind_args *uap)
 {
@@ -220,6 +286,27 @@ sys_bind(struct thread *td, struct bind_args *uap)
 	}
 	return (error);
 }
+#ifdef __rtems__
+int
+bind(int socket, const struct sockaddr *address, socklen_t address_len)
+{
+	struct thread *td = rtems_bsd_get_curthread_or_null();
+	struct bind_args ua = {
+		.s = socket,
+		.name = address,
+		.namelen = address_len
+	};
+	int error;
+
+	if (td != NULL) {
+		error = sys_bind(td, &ua);
+	} else {
+		error = ENOMEM;
+	}
+
+	return rtems_bsd_error_to_status_and_errno(error);
+}
+#endif /* __rtems__ */
 
 int
 kern_bindat(struct thread *td, int dirfd, int fd, struct sockaddr *sa)
@@ -282,6 +369,9 @@ sys_bindat(struct thread *td, struct bindat_args *uap)
 }
 #endif /* __rtems__ */
 
+#ifdef __rtems__
+static
+#endif /* __rtems__ */
 int
 sys_listen(struct thread *td, struct listen_args *uap)
 {
@@ -310,7 +400,31 @@ kern_listen(struct thread *td, int s, int backlog)
 	}
 	return (error);
 }
+#ifdef __rtems__
+int
+listen(int socket, int backlog)
+{
+	struct thread *td = rtems_bsd_get_curthread_or_null();
+	struct listen_args ua = {
+		.s = socket,
+		.backlog = backlog
+	};
+	int error;
 
+	if (td != NULL) {
+		error = sys_listen(td, &ua);
+	} else {
+		error = ENOMEM;
+	}
+
+	return rtems_bsd_error_to_status_and_errno(error);
+}
+#endif /* __rtems__ */
+
+#ifdef __rtems__
+static int kern_accept4(struct thread *td, int s, struct sockaddr **name,
+    socklen_t *namelen, int flags, struct file **fp);
+#endif /* __rtems__ */
 /*
  * accept1()
  */
@@ -359,13 +473,37 @@ accept1(td, s, uname, anamelen, flags)
 	free(name, M_SONAME);
 	return (error);
 }
+#ifdef __rtems__
+int
+accept(int socket, struct sockaddr *__restrict address,
+    socklen_t *__restrict address_len)
+{
+	struct thread *td = rtems_bsd_get_curthread_or_null();
+	int error;
 
+	if (td != NULL) {
+		error = accept1(td, socket, address, address_len,
+		    ACCEPT4_INHERIT);
+	} else {
+		error = ENOMEM;
+	}
+
+	if (error == 0) {
+		return td->td_retval[0];
+	} else {
+		rtems_set_errno_and_return_minus_one(error);
+	}
+}
+#endif /* __rtems__ */
+
+#ifndef __rtems__
 int
 kern_accept(struct thread *td, int s, struct sockaddr **name,
     socklen_t *namelen, struct file **fp)
 {
 	return (kern_accept4(td, s, name, namelen, ACCEPT4_INHERIT, fp));
 }
+#endif /* __rtems__ */
 
 int
 kern_accept4(struct thread *td, int s, struct sockaddr **name,
@@ -374,7 +512,9 @@ kern_accept4(struct thread *td, int s, struct sockaddr **name,
 	struct file *headfp, *nfp = NULL;
 	struct sockaddr *sa = NULL;
 	struct socket *head, *so;
+#ifndef __rtems__
 	struct filecaps fcaps;
+#endif /* __rtems__ */
 	u_int fflag;
 	pid_t pgid;
 	int error, fd, tmp;
@@ -486,6 +626,7 @@ done:
 	return (error);
 }
 
+#ifndef __rtems__
 int
 sys_accept(td, uap)
 	struct thread *td;
@@ -518,7 +659,14 @@ oaccept(td, uap)
 	    ACCEPT4_INHERIT | ACCEPT4_COMPAT));
 }
 #endif /* COMPAT_OLDSOCK */
+#endif /* __rtems__ */
 
+#ifdef __rtems__
+static int kern_connectat(struct thread *td, int dirfd, int fd,
+    struct sockaddr *sa);
+
+static
+#endif /* __rtems__ */
 int
 sys_connect(struct thread *td, struct connect_args *uap)
 {
@@ -538,6 +686,27 @@ sys_connect(struct thread *td, struct connect_args *uap)
 	}
 	return (error);
 }
+#ifdef __rtems__
+int
+connect(int socket, const struct sockaddr *address, socklen_t address_len)
+{
+	struct thread *td = rtems_bsd_get_curthread_or_null();
+	struct connect_args ua = {
+		.s = socket,
+		.name = address,
+		.namelen = address_len
+	};
+	int error;
+
+	if (td != NULL) {
+		error = sys_connect(td, &ua);
+	} else {
+		error = ENOMEM;
+	}
+
+	return rtems_bsd_error_to_status_and_errno(error);
+}
+#endif /* __rtems__ */
 
 int
 kern_connectat(struct thread *td, int dirfd, int fd, struct sockaddr *sa)
@@ -724,6 +893,9 @@ free1:
 	return (error);
 }
 
+#ifdef __rtems__
+static
+#endif /* __rtems__ */
 int
 sys_socketpair(struct thread *td, struct socketpair_args *uap)
 {
@@ -747,7 +919,34 @@ sys_socketpair(struct thread *td, struct socketpair_args *uap)
 #endif /* __rtems__ */
 	return (error);
 }
+#ifdef __rtems__
+int
+socketpair(int domain, int type, int protocol, int *socket_vector)
+{
+	struct thread *td = rtems_bsd_get_curthread_or_null();
+	struct socketpair_args ua = {
+		.domain = domain,
+		.type = type,
+		.protocol = protocol,
+		.rsv = socket_vector
+	};
+	int error;
 
+	if (td != NULL) {
+		error = sys_socketpair(td, &ua);
+	} else {
+		error = ENOMEM;
+	}
+
+	return rtems_bsd_error_to_status_and_errno(error);
+}
+#endif /* __rtems__ */
+
+#ifdef __rtems__
+static int
+kern_sendit( struct thread *td, int s, struct msghdr *mp, int flags,
+    struct mbuf *control, enum uio_seg segflg);
+#endif /* __rtems__ */
 static int
 sendit(struct thread *td, int s, struct msghdr *mp, int flags)
 {
@@ -822,7 +1021,9 @@ kern_sendit(struct thread *td, int s, struct msghdr *mp, int flags,
 	struct uio auio;
 	struct iovec *iov;
 	struct socket *so;
+#ifndef __rtems__
 	cap_rights_t *rights;
+#endif /* __rtems__ */
 #ifdef KTRACE
 	struct uio *ktruio = NULL;
 #endif
@@ -837,8 +1038,6 @@ kern_sendit(struct thread *td, int s, struct msghdr *mp, int flags,
 		AUDIT_ARG_SOCKADDR(td, AT_FDCWD, mp->msg_name);
 		rights = &cap_send_connect_rights;
 	}
-#else /* __rtems__ */
-	rights = NULL;
 #endif /* __rtems__ */
 	error = getsock_cap(td, s, rights, &fp, NULL, NULL);
 	if (error != 0) {
@@ -917,6 +1116,9 @@ bad:
 	return (error);
 }
 
+#ifdef __rtems__
+static
+#endif /* __rtems__ */
 int
 sys_sendto(struct thread *td, struct sendto_args *uap)
 {
@@ -941,6 +1143,34 @@ sys_sendto(struct thread *td, struct sendto_args *uap)
 	return (sendit(td, uap->s, &msg, uap->flags));
 }
 #ifdef __rtems__
+ssize_t
+sendto(int socket, const void *message, size_t length, int flags,
+    const struct sockaddr *dest_addr, socklen_t dest_len)
+{
+	struct thread *td = rtems_bsd_get_curthread_or_null();
+	struct sendto_args ua = {
+		.s = socket,
+		.buf = (caddr_t) message,
+		.len = length,
+		.flags = flags,
+		.to = dest_addr,
+		.tolen = dest_len
+	};
+	int error;
+
+	if (td != NULL) {
+		error = sys_sendto(td, &ua);
+	} else {
+		error = ENOMEM;
+	}
+
+	if (error == 0) {
+		return td->td_retval[0];
+	} else {
+		rtems_set_errno_and_return_minus_one(error);
+	}
+}
+
 int
 rtems_bsd_sendto(int socket, struct mbuf *m, int flags,
     const struct sockaddr *dest_addr)
@@ -1007,6 +1237,9 @@ osendmsg(struct thread *td, struct osendmsg_args *uap)
 #endif
 #endif /* __rtems__ */
 
+#ifdef __rtems__
+static
+#endif /* __rtems__ */
 int
 sys_sendmsg(struct thread *td, struct sendmsg_args *uap)
 {
@@ -1029,7 +1262,35 @@ sys_sendmsg(struct thread *td, struct sendmsg_args *uap)
 	free(iov, M_IOV);
 	return (error);
 }
+#ifdef __rtems__
+ssize_t
+sendmsg(int socket, const struct msghdr *message, int flags)
+{
+	struct thread *td = rtems_bsd_get_curthread_or_null();
+	struct sendmsg_args ua = {
+		.s = socket,
+		.msg = message,
+		.flags = flags
+	};
+	int error;
 
+	if (td != NULL) {
+		error = sys_sendmsg(td, &ua);
+	} else {
+		error = ENOMEM;
+	}
+
+	if (error == 0) {
+		return td->td_retval[0];
+	} else {
+		rtems_set_errno_and_return_minus_one(error);
+	}
+}
+#endif /* __rtems__ */
+
+#ifdef __rtems__
+static
+#endif /* __rtems__ */
 int
 kern_recvit(struct thread *td, int s, struct msghdr *mp, enum uio_seg fromseg,
     struct mbuf **controlp)
@@ -1204,6 +1465,9 @@ recvit(struct thread *td, int s, struct msghdr *mp, void *namelenp)
 	return (error);
 }
 
+#ifdef __rtems__
+static
+#endif /* __rtems__ */
 int
 sys_recvfrom(struct thread *td, struct recvfrom_args *uap)
 {
@@ -1230,6 +1494,35 @@ sys_recvfrom(struct thread *td, struct recvfrom_args *uap)
 done2:
 	return (error);
 }
+#ifdef __rtems__
+ssize_t
+recvfrom(int socket, void *__restrict buffer, size_t length, int flags,
+    struct sockaddr *__restrict address, socklen_t *__restrict address_len)
+{
+	struct thread *td = rtems_bsd_get_curthread_or_null();
+	struct recvfrom_args ua = {
+		.s = socket,
+		.buf = buffer,
+		.len = length,
+		.flags = flags,
+		.from = address,
+		.fromlenaddr = address_len
+	};
+	int error;
+
+	if (td != NULL) {
+		error = sys_recvfrom(td, &ua);
+	} else {
+		error = ENOMEM;
+	}
+
+	if (error == 0) {
+		return td->td_retval[0];
+	} else {
+		rtems_set_errno_and_return_minus_one(error);
+	}
+}
+#endif /* __rtems__ */
 
 #ifndef __rtems__
 #ifdef COMPAT_OLDSOCK
@@ -1290,6 +1583,9 @@ orecvmsg(struct thread *td, struct orecvmsg_args *uap)
 #endif
 #endif /* __rtems__ */
 
+#ifdef __rtems__
+static
+#endif /* __rtems__ */
 int
 sys_recvmsg(struct thread *td, struct recvmsg_args *uap)
 {
@@ -1318,7 +1614,35 @@ sys_recvmsg(struct thread *td, struct recvmsg_args *uap)
 	free(iov, M_IOV);
 	return (error);
 }
+#ifdef __rtems__
+ssize_t
+recvmsg(int socket, struct msghdr *message, int flags)
+{
+	struct thread *td = rtems_bsd_get_curthread_or_null();
+	struct recvmsg_args ua = {
+		.s = socket,
+		.msg = message,
+		.flags = flags
+	};
+	int error;
 
+	if (td != NULL) {
+		error = sys_recvmsg(td, &ua);
+	} else {
+		error = ENOMEM;
+	}
+
+	if (error == 0) {
+		return td->td_retval[0];
+	} else {
+		rtems_set_errno_and_return_minus_one(error);
+	}
+}
+#endif /* __rtems__ */
+
+#ifdef __rtems__
+static
+#endif /* __rtems__ */
 int
 sys_shutdown(struct thread *td, struct shutdown_args *uap)
 {
@@ -1354,7 +1678,23 @@ kern_shutdown(struct thread *td, int s, int how)
 	}
 	return (error);
 }
+#ifdef __rtems__
+int
+shutdown(int socket, int how)
+{
+	struct shutdown_args ua = {
+		.s = socket,
+		.how = how
+	};
+	int error = sys_shutdown(NULL, &ua);
 
+	return rtems_bsd_error_to_status_and_errno(error);
+}
+#endif /* __rtems__ */
+
+#ifdef __rtems__
+static
+#endif /* __rtems__ */
 int
 sys_setsockopt(struct thread *td, struct setsockopt_args *uap)
 {
@@ -1362,10 +1702,39 @@ sys_setsockopt(struct thread *td, struct setsockopt_args *uap)
 	return (kern_setsockopt(td, uap->s, uap->level, uap->name,
 	    uap->val, UIO_USERSPACE, uap->valsize));
 }
+#ifdef __rtems__
+int
+setsockopt(int socket, int level, int option_name, const void *option_value,
+    socklen_t option_len)
+{
+	struct thread *td = rtems_bsd_get_curthread_or_null();
+	struct setsockopt_args ua = {
+		.s = socket,
+		.level = level,
+		.name = option_name,
+		.val = __DECONST(void *, option_value),
+		.valsize = option_len
+	};
+	int error;
+
+	if (td != NULL) {
+		error = sys_setsockopt(td, &ua);
+	} else {
+		error = ENOMEM;
+	}
+
+	return rtems_bsd_error_to_status_and_errno(error);
+}
+#endif /* __rtems__ */
 
 int
+#ifndef __rtems__
 kern_setsockopt(struct thread *td, int s, int level, int name, void *val,
     enum uio_seg valseg, socklen_t valsize)
+#else /* __rtems__ */
+kern_setsockopt(struct thread *td, int s, int level, int name, const void *val,
+    enum uio_seg valseg, socklen_t valsize)
+#endif /* __rtems__ */
 {
 	struct socket *so;
 	struct file *fp;
@@ -1380,7 +1749,11 @@ kern_setsockopt(struct thread *td, int s, int level, int name, void *val,
 	sopt.sopt_dir = SOPT_SET;
 	sopt.sopt_level = level;
 	sopt.sopt_name = name;
+#ifndef __rtems__
 	sopt.sopt_val = val;
+#else /* __rtems__ */
+	sopt.sopt_val = __DECONST(void *, val);
+#endif /* __rtems__ */
 	sopt.sopt_valsize = valsize;
 	switch (valseg) {
 	case UIO_USERSPACE:
@@ -1404,6 +1777,12 @@ kern_setsockopt(struct thread *td, int s, int level, int name, void *val,
 	return(error);
 }
 
+#ifdef __rtems__
+static int kern_getsockopt( struct thread *td, int s, int level, int name,
+    void *val, enum uio_seg valseg, socklen_t *valsize);
+
+static
+#endif /* __rtems__ */
 int
 sys_getsockopt(struct thread *td, struct getsockopt_args *uap)
 {
@@ -1423,6 +1802,30 @@ sys_getsockopt(struct thread *td, struct getsockopt_args *uap)
 		error = copyout(&valsize, uap->avalsize, sizeof (valsize));
 	return (error);
 }
+#ifdef __rtems__
+int
+getsockopt(int socket, int level, int option_name, void *__restrict
+    option_value, socklen_t *__restrict option_len)
+{
+	struct thread *td = rtems_bsd_get_curthread_or_null();
+	struct getsockopt_args ua = {
+		.s = socket,
+		.level = level,
+		.name = option_name,
+		.val = (caddr_t) option_value,
+		.avalsize = option_len
+	};
+	int error;
+
+	if (td != NULL) {
+		error = sys_getsockopt(td, &ua);
+	} else {
+		error = ENOMEM;
+	}
+
+	return rtems_bsd_error_to_status_and_errno(error);
+}
+#endif /* __rtems__ */
 
 /*
  * Kernel version of getsockopt.
@@ -1500,6 +1903,28 @@ getsockname1(struct thread *td, struct getsockname_args *uap, int compat)
 		error = copyout(&len, uap->alen, sizeof(len));
 	return (error);
 }
+#ifdef __rtems__
+int
+getsockname(int socket, struct sockaddr *__restrict address,
+    socklen_t *__restrict address_len)
+{
+	struct thread *td = rtems_bsd_get_curthread_or_null();
+	struct getsockname_args ua = {
+		.fdes = socket,
+		.asa = address,
+		.alen = address_len
+	};
+	int error;
+
+	if (td != NULL) {
+		error = getsockname1(td, &ua, 0);
+	} else {
+		error = ENOMEM;
+	}
+
+	return rtems_bsd_error_to_status_and_errno(error);
+}
+#endif /* __rtems__ */
 
 int
 kern_getsockname(struct thread *td, int fd, struct sockaddr **sa,
@@ -1540,6 +1965,7 @@ bad:
 	return (error);
 }
 
+#ifndef __rtems__
 int
 sys_getsockname(struct thread *td, struct getsockname_args *uap)
 {
@@ -1555,7 +1981,13 @@ ogetsockname(struct thread *td, struct getsockname_args *uap)
 	return (getsockname1(td, uap, 1));
 }
 #endif /* COMPAT_OLDSOCK */
+#endif /* __rtems__ */
 
+#ifdef __rtems__
+static int
+kern_getpeername(struct thread *td, int fd, struct sockaddr **sa,
+    socklen_t *alen);
+#endif /* __rtems__ */
 /*
  * getpeername1() - Get name of peer for connected socket.
  */
@@ -1586,6 +2018,28 @@ getpeername1(struct thread *td, struct getpeername_args *uap, int compat)
 		error = copyout(&len, uap->alen, sizeof(len));
 	return (error);
 }
+#ifdef __rtems__
+int
+getpeername(int socket, struct sockaddr *__restrict address,
+    socklen_t *__restrict address_len)
+{
+	struct thread *td = rtems_bsd_get_curthread_or_null();
+	struct getpeername_args ua = {
+		.fdes = socket,
+		.asa = address,
+		.alen = address_len
+	};
+	int error;
+
+	if (td != NULL) {
+		error = getpeername1(td, &ua, 0);
+	} else {
+		error = ENOMEM;
+	}
+
+	return rtems_bsd_error_to_status_and_errno(error);
+}
+#endif /* __rtems__ */
 
 int
 kern_getpeername(struct thread *td, int fd, struct sockaddr **sa,
@@ -1631,6 +2085,7 @@ done:
 	return (error);
 }
 
+#ifndef __rtems__
 int
 sys_getpeername(struct thread *td, struct getpeername_args *uap)
 {
@@ -1647,6 +2102,7 @@ ogetpeername(struct thread *td, struct ogetpeername_args *uap)
 	return (getpeername1(td, (struct getpeername_args *)uap, 1));
 }
 #endif /* COMPAT_OLDSOCK */
+#endif /* __rtems__ */
 
 static int
 sockargs(struct mbuf **mp, char *buf, socklen_t buflen, int type)
@@ -1686,22 +2142,23 @@ sockargs(struct mbuf **mp, char *buf, socklen_t buflen, int type)
 	return (error);
 }
 
-#ifdef __rtems__
-#undef getsockaddr
 int
-_bsd_getsockaddr(struct sockaddr **namp, caddr_t uaddr, size_t len)
-#else /* __rtems__ */
-int
+#ifndef __rtems__
 getsockaddr(struct sockaddr **namp, caddr_t uaddr, size_t len)
+#else /* __rtems__ */
+getsockaddr(struct sockaddr **namp, const struct sockaddr *uaddr, size_t len)
 #endif /* __rtems__ */
 {
 	struct sockaddr *sa;
+#ifndef __rtems__
 	int error;
+#endif /* __rtems__ */
 
 	if (len > SOCK_MAXADDRLEN)
 		return (ENAMETOOLONG);
 	if (len < offsetof(struct sockaddr, sa_data[0]))
 		return (EINVAL);
+#ifndef __rtems__
 	sa = malloc(len, M_SONAME, M_WAITOK);
 	error = copyin(uaddr, sa, len);
 	if (error != 0) {
@@ -1716,6 +2173,11 @@ getsockaddr(struct sockaddr **namp, caddr_t uaddr, size_t len)
 		*namp = sa;
 	}
 	return (error);
+#else /* __rtems__ */
+	sa = memcpy(*namp, uaddr, len);
+	sa->sa_len = len;
+	return (0);
+#endif /* __rtems__ */
 }
 
 /*
