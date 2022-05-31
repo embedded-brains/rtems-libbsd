@@ -1038,7 +1038,9 @@ uipc_listen(struct socket *so, int backlog, struct thread *td)
 	SOCK_LOCK(so);
 	error = solisten_proto_check(so);
 	if (error == 0) {
+#ifndef __rtems__
 		cru2x(td->td_ucred, &unp->unp_peercred);
+#endif /* __rtems__ */
 		solisten_proto(so, backlog);
 	}
 	SOCK_UNLOCK(so);
@@ -1566,14 +1568,18 @@ uipc_ctloutput(struct socket *so, struct sockopt *sopt)
 		switch (sopt->sopt_name) {
 		case LOCAL_PEERCRED:
 			UNP_PCB_LOCK(unp);
+#ifndef __rtems__
 			if (unp->unp_flags & UNP_HAVEPC)
 				xu = unp->unp_peercred;
 			else {
+#endif /* __rtems__ */
 				if (so->so_type == SOCK_STREAM)
 					error = ENOTCONN;
 				else
 					error = EINVAL;
+#ifndef __rtems__
 			}
+#endif /* __rtems__ */
 			UNP_PCB_UNLOCK(unp);
 			if (error == 0)
 				error = sooptcopyout(sopt, &xu, sizeof(xu));
@@ -1843,6 +1849,7 @@ void
 unp_copy_peercred(struct thread *td, struct unpcb *client_unp,
     struct unpcb *server_unp, struct unpcb *listen_unp)
 {
+#ifndef __rtems__
 	cru2x(td->td_ucred, &client_unp->unp_peercred);
 	client_unp->unp_flags |= UNP_HAVEPC;
 
@@ -1851,6 +1858,7 @@ unp_copy_peercred(struct thread *td, struct unpcb *client_unp,
 	server_unp->unp_flags |= UNP_HAVEPC;
 	if (listen_unp->unp_flags & UNP_WANTCRED)
 		client_unp->unp_flags |= UNP_WANTCRED;
+#endif /* __rtems__ */
 }
 
 static int

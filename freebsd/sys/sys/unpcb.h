@@ -80,10 +80,10 @@ struct unpcb {
 	/* Cache line 2 */
 #ifndef __rtems__
 	struct	vnode *unp_vnode;	/* if associated with file */
+	struct	xucred unp_peercred;	/* peer credentials, if applicable */
 #else /* __rtems__ */
 	void *unp_vnode;		/* if associated with file */
 #endif /* __rtems__ */
-	struct	xucred unp_peercred;	/* peer credentials, if applicable */
 	LIST_ENTRY(unpcb) unp_reflink;	/* link in unp_refs list */
 	LIST_ENTRY(unpcb) unp_link; 	/* glue on list of all PCBs */
 	struct	unp_head unp_refs;	/* referencing socket linked list */
