@@ -108,7 +108,6 @@ sbintime_t tc_tick_sbt;
 int tc_precexp;
 int maxproc;
 int ngroups_max;
-int unmapped_buf_allowed;
 caddr_t unmapped_base;
 long maxbcache;
 struct sx allproc_lock;

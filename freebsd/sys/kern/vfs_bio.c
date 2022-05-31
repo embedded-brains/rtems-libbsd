@@ -327,6 +327,9 @@ SYSCTL_COUNTER_U64(_vfs, OID_AUTO, notbufdflushes, CTLFLAG_RD, &notbufdflushes,
 static long barrierwrites;
 SYSCTL_LONG(_vfs, OID_AUTO, barrierwrites, CTLFLAG_RW, &barrierwrites, 0,
     "Number of barrier writes");
+#ifdef __rtems__
+int unmapped_buf_allowed;
+#endif /* __rtems__ */
 SYSCTL_INT(_vfs, OID_AUTO, unmapped_buf_allowed, CTLFLAG_RD,
     &unmapped_buf_allowed, 0,
     "Permit the use of the unmapped i/o");
