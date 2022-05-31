@@ -6381,7 +6381,6 @@
 #define	uma_zone_set_zinit _bsd_uma_zone_set_zinit
 #define	uma_zsecond_create _bsd_uma_zsecond_create
 #define	uma_zwait _bsd_uma_zwait
-#define	unmapped_base _bsd_unmapped_base
 #define	unmapped_buf _bsd_unmapped_buf
 #define	unmapped_buf_allowed _bsd_unmapped_buf_allowed
 #define	unp_copy_peercred _bsd_unp_copy_peercred

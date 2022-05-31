@@ -67,7 +67,6 @@
 #include <limits.h>
 #include <rtems/bsd/bsd.h>
 #include <rtems/libio_.h>
-#include <rtems/malloc.h>
 #include <uuid/uuid.h>
 
 SYSINIT_REFERENCE(configure1);
@@ -108,8 +107,6 @@ sbintime_t tc_tick_sbt;
 int tc_precexp;
 int maxproc;
 int ngroups_max;
-caddr_t unmapped_base;
-long maxbcache;
 struct sx allproc_lock;
 struct vmem *rtems_bsd_transient_arena;
 int nbuf;   /* The number of buffer headers */
@@ -127,15 +124,6 @@ SYSCTL_INT(_kern_smp, OID_AUTO, maxid, CTLFLAG_RD | CTLFLAG_CAPRD,
 
 SYSCTL_INT(_kern_smp, OID_AUTO, maxcpus, CTLFLAG_RD | CTLFLAG_CAPRD,
     &maxid_maxcpus, 0, "Max number of CPUs that the system was compiled for.");
-
-static void
-cpu_startup(void *dummy)
-{
-	kern_vfs_bio_buffer_alloc(unmapped_base, maxbcache);
-	bufinit();
-	vm_pager_bufferinit();
-}
-SYSINIT(cpu, SI_SUB_CPU, SI_ORDER_FIRST, cpu_startup, NULL);
 
 static struct filedesc p_fd = {
     .fd_cmask = CMASK
@@ -210,14 +198,6 @@ rtems_bsd_initialize(void)
 
 	maxproc = 16;
 	ngroups_max = 4;
-
-	maxbcache = rtems_bsd_get_allocator_domain_size(
-	    RTEMS_BSD_ALLOCATOR_DOMAIN_BIO);
-	unmapped_base = (caddr_t)rtems_heap_allocate_aligned_with_boundary(
-	    maxbcache, CACHE_LINE_SIZE, 0);
-	if (unmapped_base == NULL) {
-		return RTEMS_UNSATISFIED;
-	}
 
 	mkdir("/etc", S_IRWXU | S_IRWXG | S_IRWXO);
 

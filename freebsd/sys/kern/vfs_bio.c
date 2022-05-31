@@ -95,7 +95,14 @@ __FBSDID("$FreeBSD$");
 #include <rtems/bsd/local/opt_swap.h>
 
 #ifdef __rtems__
+#include <rtems/malloc.h>
+#include <rtems/bsd/bsd.h>
+
+#include <machine/rtems-bsd-page.h>
+
 int bio_transient_maxcnt = 1024;
+long maxbcache;
+static caddr_t unmapped_base;
 #endif /* __rtems__ */
 static MALLOC_DEFINE(M_BIOBUF, "biobuf", "BIO buffer");
 
@@ -1201,7 +1208,6 @@ bufinit(void)
 #ifndef __rtems__
 	unmapped_buf = (caddr_t)kva_alloc(MAXPHYS);
 #else /* __rtems__ */
-	extern caddr_t unmapped_base;
 	unmapped_buf = (caddr_t)unmapped_base;
 #endif /* __rtems__ */
 
@@ -1332,6 +1338,22 @@ bufinit(void)
 	bufdefragcnt = counter_u64_alloc(M_WAITOK);
 	bufkvaspace = counter_u64_alloc(M_WAITOK);
 }
+#ifdef __rtems__
+static void
+vfs_bio_init(void *dummy)
+{
+
+	maxbcache = rtems_bsd_get_allocator_domain_size(
+	    RTEMS_BSD_ALLOCATOR_DOMAIN_BIO);
+	unmapped_base = (caddr_t)rtems_heap_allocate_aligned_with_boundary(
+	    maxbcache, CACHE_LINE_SIZE, 0);
+	BSD_ASSERT(unmapped_base != NULL);
+	kern_vfs_bio_buffer_alloc(unmapped_base, maxbcache);
+	bufinit();
+	vm_pager_bufferinit();
+}
+SYSINIT(cpu, SI_SUB_CPU, SI_ORDER_FIRST, vfs_bio_init, NULL);
+#endif /* __rtems__ */
 
 #ifdef INVARIANTS
 static inline void
