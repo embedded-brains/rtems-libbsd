@@ -94,6 +94,9 @@ __FBSDID("$FreeBSD$");
 #endif /* __rtems__ */
 #include <rtems/bsd/local/opt_swap.h>
 
+#ifdef __rtems__
+int bio_transient_maxcnt = 1024;
+#endif /* __rtems__ */
 static MALLOC_DEFINE(M_BIOBUF, "biobuf", "BIO buffer");
 
 struct	bio_ops bioops;		/* I/O operation notification */

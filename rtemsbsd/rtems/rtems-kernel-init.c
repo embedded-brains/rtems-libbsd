@@ -111,7 +111,6 @@ int ngroups_max;
 int unmapped_buf_allowed;
 caddr_t unmapped_base;
 long maxbcache;
-int bio_transient_maxcnt;
 struct sx allproc_lock;
 struct vmem *rtems_bsd_transient_arena;
 int nbuf;   /* The number of buffer headers */
@@ -208,7 +207,6 @@ rtems_bsd_initialize(void)
 	sbt_timethreshold = bttosbt(bt_timethreshold);
 	sbt_tickthreshold = bttosbt(bt_tickthreshold);
 	maxid_maxcpus = (int)rtems_scheduler_get_processor_maximum();
-	bio_transient_maxcnt = 1024;
 	sx_init(&allproc_lock, "allproc");
 
 	maxproc = 16;
