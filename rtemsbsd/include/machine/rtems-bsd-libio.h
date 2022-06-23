@@ -120,8 +120,6 @@ rtems_bsd_knote_to_file(const struct knote *kn)
 	return (((rtems_libio_t *)kn->kn_fp)->data1);
 }
 
-struct file *rtems_bsd_iop_to_file(const rtems_libio_t *iop);
-
 /*
  * Set the vnode in the libio location.
  */

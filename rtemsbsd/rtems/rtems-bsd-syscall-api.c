@@ -146,7 +146,7 @@ const rtems_filesystem_file_handlers_r rtems_bsd_sysgen_nodeops = {
 	.mmap_h = rtems_filesystem_default_mmap
 };
 
-struct file *
+static struct file *
 rtems_bsd_iop_to_file(const rtems_libio_t *iop)
 {
 
