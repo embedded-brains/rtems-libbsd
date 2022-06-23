@@ -146,25 +146,6 @@ const rtems_filesystem_file_handlers_r rtems_bsd_sysgen_nodeops = {
 	.mmap_h = rtems_filesystem_default_mmap
 };
 
-const rtems_filesystem_file_handlers_r rtems_bsd_sysgen_imfsnodeops = {
-	.open_h = rtems_bsd_sysgen_open_error,
-	.close_h = rtems_bsd_sysgen_close,
-	.read_h = rtems_bsd_sysgen_read,
-	.write_h = rtems_bsd_sysgen_write,
-	.ioctl_h = rtems_bsd_sysgen_ioctl,
-	.lseek_h = rtems_filesystem_default_lseek,
-	.fstat_h = rtems_bsd_sysgen_imfsfstat,
-	.ftruncate_h = rtems_filesystem_default_ftruncate,
-	.fsync_h = rtems_filesystem_default_fsync_or_fdatasync,
-	.fdatasync_h = rtems_filesystem_default_fsync_or_fdatasync,
-	.fcntl_h = rtems_bsd_sysgen_fcntl,
-	.poll_h = rtems_bsd_sysgen_poll,
-	.kqfilter_h = rtems_bsd_sysgen_kqfilter,
-	.readv_h = rtems_bsd_sysgen_readv,
-	.writev_h = rtems_bsd_sysgen_writev,
-	.mmap_h = rtems_filesystem_default_mmap
-};
-
 struct file *
 rtems_bsd_iop_to_file(const rtems_libio_t *iop)
 {
@@ -712,51 +693,6 @@ rtems_bsd_sysgen_fstat(
 	}
 	fp = rtems_bsd_iop_to_file(iop);
 	if (fp != NULL) {
-		error = fo_stat(fp, buf, NULL, td);
-	} else {
-		error = EBADF;
-	}
-	return rtems_bsd_error_to_status_and_errno(error);
-}
-
-int
-rtems_bsd_sysgen_imfsfstat(
-    const rtems_filesystem_location_info_t *loc, struct stat *buf)
-{
-	struct thread *td = curthread;
-	struct socket *so = rtems_bsd_libio_imfs_loc_to_so(loc);
-	struct file *fp = NULL;
-	int error;
-	int fd;
-	if (RTEMS_BSD_SYSCALL_TRACE) {
-		printf("bsd: sys: imfsfstat: socket=%p\n", so);
-	}
-	if (td == NULL) {
-		if (RTEMS_BSD_SYSCALL_TRACE) {
-			printf("bsd: sys: fstat: no curthread\n");
-		}
-		return rtems_bsd_error_to_status_and_errno(ENOMEM);
-	}
-	rtems_libio_lock();
-	for (fd = 0; fd < (int)rtems_libio_number_iops; ++fd) {
-		rtems_libio_t *iop;
-
-		iop = rtems_libio_iop(fd);
-		if (iop->pathinfo.handlers == NULL) {
-			continue;
-		}
-		fp = rtems_bsd_iop_to_file(iop);
-		if (fp != NULL && fp->f_data == so) {
-			break;
-		}
-
-		fp = NULL;
-	}
-	rtems_libio_unlock();
-	if (fp != NULL) {
-		if (RTEMS_BSD_SYSCALL_TRACE) {
-			printf("bsd: sys: imfsfstat: %d\n", fd);
-		}
 		error = fo_stat(fp, buf, NULL, td);
 	} else {
 		error = EBADF;

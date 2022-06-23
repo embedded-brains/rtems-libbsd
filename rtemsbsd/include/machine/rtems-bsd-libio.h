@@ -50,7 +50,6 @@
 struct rtems_bsd_vfs_loc;
 
 extern const rtems_filesystem_file_handlers_r rtems_bsd_sysgen_nodeops;
-extern const rtems_filesystem_file_handlers_r rtems_bsd_sysgen_imfsnodeops;
 extern const rtems_filesystem_file_handlers_r rtems_bsd_sysgen_dirops;
 extern const rtems_filesystem_file_handlers_r rtems_bsd_sysgen_fileops;
 
@@ -91,16 +90,6 @@ rtems_bsd_libio_loc_to_iop(const rtems_filesystem_location_info_t *loc)
 	return (rtems_libio_t *)RTEMS_DECONST(
 	    rtems_filesystem_location_info_t *, loc)
 	    ->node_access;
-}
-
-struct socket;
-
-static inline struct socket *
-rtems_bsd_libio_imfs_loc_to_so(const rtems_filesystem_location_info_t *loc)
-{
-	return (struct socket *)RTEMS_DECONST(
-	    rtems_filesystem_location_info_t *, loc)
-	    ->node_access_2;
 }
 
 static struct vnode *
