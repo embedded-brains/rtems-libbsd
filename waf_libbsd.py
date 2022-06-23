@@ -295,7 +295,7 @@ class Builder(builder.ModuleManager):
             'NET_CFG_PEER_IP': { 'mandatory': True },
             'NET_CFG_GATEWAY_IP': { 'manditory': True },
             'NET_CFG_NFS_MOUNT_PATH': { 'mandatory': False,
-                                        'default': '@NET_CFG_PEER_IP@/rtems' },
+                                        'default': '@NET_CFG_PEER_IP@:/rtems' },
             'NET_CFG_NFS_MOUNT_OPTIONS': { 'mandatory': False,
                                            'default': 'nfsv4,minorversion=1' }
         }
