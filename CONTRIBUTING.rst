@@ -474,6 +474,24 @@ Perform the following steps to do a FreeBSD baseline update:
 
 * Review all code blocks with the ``REVIEW-AFTER-FREEBSD-BASELINE-UPDATE`` tag.
 
+Porting Advice
+==============
+
+In FreeBSD there is a kernel and user space separation.  The kernel is invoked
+by applications through system calls.  These system calls are usually
+implemented by associated ``kern_*()`` functions.  For example, the
+``select()`` system call is implemented by ``kern_select()``.  In RTEMS, there
+is no kernel and user space separation.  The system call functions should be
+added directly after the associated ``kern_*()`` function.  The associated
+``kern_*()`` function should be made static.  This allows the compiler to
+remove the function call.  It may also reduce the need for stack variables in
+favour of registers for parameters.  Placing the system calls directly to the
+kernel implementation helps the linker to only include code needed by the
+application and works well with the linker set based LibBSD initialization.  It
+also helps during FreeBSD baseline updates since changes in the kernel
+implementation may be indicated through merge conflicts and this may highlight
+fixes in the porting code.
+
 Automatically Generated FreeBSD Files
 =====================================
 
@@ -687,6 +705,67 @@ System Control Hints
 If you get undefined references to ``_bsd_sysctl_*`` symbols, then you have to
 locate and add the associated system control node, see
 `SYSCTL(9) <http://www.freebsd.org/cgi/man.cgi?query=SYSCTL_DECL&sektion=9>`_.
+
+File Descriptor Tradeoffs
+=========================
+
+In POSIX systems, individual objects (for example files, sockets, kqueues) are
+usually referenced by file descriptors at API level.  A file descriptor is an
+integer.  One of the jobs of an API level function is checking that a file
+descriptor is valid, mapping it to internal data structures and operations, and
+checking that the operation is allowed.  This procedure is done for every call
+of an API level function, so it should be done quickly.  File descriptors are a
+process-specific resource.
+
+In RTEMS, there is only one process (with multiple threads), so the file
+descriptor is simply used as an index into a global array
+(``rtems_libio_iops``) of file control blocks (``rtems_libio_t``).  Firstly, a
+file descriptor is checked that it is in the range of the array.  The size of
+the array is defined by the application configuration
+(``CONFIGURE_MAXIMUM_FILE_DESCRIPTORS``, ``rtems_libio_number_iops``).
+Secondly, it is checked that the referenced file control block is open.  If one
+of the two checks fails, then an ``EBADF`` error is indicated.  Closed file
+control blocks are queued in a FIFO.  If a new file control block is needed it
+is dequeued from the FIFO.  Since files can be opened and closed, file
+descriptors are recycled after a while.  Using a file descriptor after it was
+closed is a software error.  This error may be indicated by an ``EBADF`` error
+status.  However, if the file descriptor is already reused, then a different
+file object is wrongly used.  To increase the time until a file descriptor is
+recycled, the list of closed file descriptors is organized as a FIFO.  File
+descriptors may be closed while an operation with the file object is in
+progress on another thread.  To avoid destroying the file object while it is
+still in use, the file close operation is performed only if the file object is
+no longer used by a thread.  If it is still in use, then the ``EBUSY`` error is
+indicated by the ``close()`` call.  This is accomplished by a reference count
+located in the file control block.  Since the file control blocks are
+statically allocated we do not need to consider a garbage collection of file
+control blocks.  The reference count is incremented by the
+``rtems_libio_iop_hold()`` function and decremented by the
+``rtems_libio_iop_drop()`` function.
+
+In FreeBSD, the situation is a bit more complicated, since it supports
+processes and dynamic file descriptor limits.  The file descriptor to file
+control block mapping starts with the thread pointer (``curthread``), which is
+used to get the process structure, which is used to get the file descriptor
+table (``struct filedesc``):
+
+.. code-block:: c
+
+    struct thread *td = curthread;
+    struct filedesc *fdp = td->td_proc->p_fd;
+
+Then ``fget_unlocked()`` is used to map the file descriptor to a
+``struct file`` pointer using ``fdp``.  This function takes into account that
+the file table is dynamically allocated and may be reallocated.  It also deals
+with the file reference count.  A file is closed when the reference count
+drops from one to zero.
+
+For LibBSD we have the option to use the FreeBSD file descriptor handling on
+top of the RTEMS file descriptor handling.  The benefit of using the FreeBSD
+file descriptor handling is that this may result in less RTEMS-specific code
+modifications in some areas.  This is a general goal of the LibBSD development.
+However, there is also a significant runtime overhead involved as outlined
+above, especially for socket operations.
 
 Issues and TODO
 ===============
