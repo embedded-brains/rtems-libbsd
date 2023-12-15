@@ -27,6 +27,8 @@
 
 #include <machine/rtems-bsd-kernel-space.h>
 
+#include <bsp/VMEConfig.h>
+
 #include <sys/cdefs.h>
 #include <sys/param.h>
 #include <sys/kernel.h>
@@ -52,6 +54,13 @@ tsi148_intr(void *arg)
 	struct tsi148 *sc;
 
 	sc = arg;
+
+	/*
+	 * Note: This interrupt is never used. It would be used in case of MSIs.
+	 * But the Tsi148 can't generate them. So this interrupt must never
+	 * happen.
+	 */
+	puts("tsi148_intr: Unexpected interrupt. Should never happen.\n");
 }
 
 static int
@@ -70,6 +79,11 @@ static int
 tsi148_attach(device_t dev)
 {
 	struct tsi148 *sc;
+
+	if (bsp_vme_pcie_base_address != 0) {
+		puts("tsi148: Another instance is already attached.\n");
+		return (ENXIO);
+	}
 
 	sc = device_get_softc(dev);
 	sc->dev = dev;
@@ -94,7 +108,10 @@ tsi148_attach(device_t dev)
 		return (ENOMEM);
 	}
 
-	return (ENXIO);
+	bsp_vme_pcie_base_address = sc->mem_res->r_bushandle;
+	BSP_vme_config();
+
+	return 0;
 }
 
 static int
